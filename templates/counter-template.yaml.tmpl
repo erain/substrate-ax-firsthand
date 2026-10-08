@@ -1,0 +1,31 @@
+# Substrate API resource: create with kubectl-ate, not kubectl apply.
+metadata:
+  atespace: firsthand
+  name: counter
+workerSelector:
+  matchLabels:
+    workload: firsthand-counter
+sandboxConfig:
+  sandboxClass: SANDBOX_CLASS_GVISOR
+  configName: gvisor-default
+containers:
+  - name: counter
+    image: @COUNTER_IMAGE@
+    command: [/app/counter]
+    wakeupProbe:
+      httpGet: {path: /readyz, port: 80}
+      timeoutSeconds: 30
+    volumeMounts:
+      - name: data
+        mountPath: /data
+resources:
+  limits:
+    - {name: cpu, quantity: "1"}
+    - {name: memory, quantity: 512Mi}
+volumes:
+  - name: data
+    durableDir: {}
+snapshotConfig:
+  onPause: SNAPSHOT_CONTENT_SCOPE_FULL
+  onCommit: SNAPSHOT_CONTENT_SCOPE_FULL
+  storageLocation: gs://ate-snapshots/firsthand/counter/

@@ -1,0 +1,20 @@
+Substrate and AX Firsthand
+
+An independent teaching companion, not an official Agent Substrate or AX release.
+
+This repository builds but does not vendor:
+- Agent Substrate, https://github.com/agent-substrate/substrate
+- AX, https://github.com/google/ax
+
+Those projects are copyright Google LLC and their contributors and are licensed
+under Apache License 2.0. Their original source headers and license files remain
+in the source checkouts created during setup. Exact revisions are recorded in
+versions.env. compat/ax-substrate.patch records local modifications to AX.
+
+The Kubernetes teaching deployment is adapted from the upstream AX deployment
+and the Substrate local certificate/snapshot configuration. The new counter
+application and walkthrough are teaching fixtures, not upstream components.
+
+Container base images and Redis are third-party dependencies with their own
+licenses. They are downloaded during setup, not distributed as source in this
+repository. Review their licenses before redistributing images.

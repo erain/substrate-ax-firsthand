@@ -1,0 +1,25 @@
+# Kubernetes owns the worker capacity, not the actor identities.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: firsthand-lab
+  labels:
+    firsthand-owner: substrate-ax-tutorial
+---
+apiVersion: ate.dev/v1alpha1
+kind: WorkerPool
+metadata:
+  name: firsthand-workers
+  namespace: firsthand-lab
+  labels:
+    workload: firsthand-counter
+spec:
+  replicas: 1
+  sandboxClass: gvisor
+  workerImage: @WORKER_IMAGE@
+  template:
+    nodeSelector:
+      ate.dev/substrate-version: @NODE_VERSION@
+    resources:
+      requests: {cpu: 250m, memory: 1Gi}
+      limits: {cpu: "1", memory: 1Gi}

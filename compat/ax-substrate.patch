@@ -1,0 +1,105 @@
+diff --git a/go.mod b/go.mod
+--- a/go.mod
++++ b/go.mod
+@@ -1,6 +1,8 @@
+ module github.com/google/ax
+ 
+ go 1.27.1
+ 
++replace github.com/agent-substrate/substrate => ../substrate
++
+ require (
+ 	github.com/agent-substrate/env v0.0.11-0.20260912052224-4468a200b170
+diff --git a/internal/controller/reconciler_test.go b/internal/controller/reconciler_test.go
+index e91954e..bd59829 100644
+--- a/internal/controller/reconciler_test.go
++++ b/internal/controller/reconciler_test.go
+@@ -112,8 +112,8 @@ func (m *mockControlServer) ResumeActor(ctx context.Context, req *ateapipb.Resum
+ 			Status: &ateapipb.ActorStatus{
+ 				State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
+ 				WorkerAssignment: &ateapipb.WorkerAssignment{
+-					WorkerPod:   "worker-pod-1",
+-					WorkerPodIp: wIP,
++					WorkerPod:    "worker-pod-1",
++					WorkerPodIps: []string{wIP},
+ 				},
+ 			},
+ 		},
+@@ -130,7 +130,6 @@ func (m *mockControlServer) SuspendActor(ctx context.Context, req *ateapipb.Susp
+ 	return &ateapipb.SuspendActorResponse{}, nil
+ }
+ 
+-
+ func (m *mockControlServer) RevertActor(_ context.Context, req *ateapipb.RevertActorRequest) (*ateapipb.RevertActorResponse, error) {
+ 	name := req.GetActor().GetName()
+ 	m.revertedActors = append(m.revertedActors, name)
+diff --git a/internal/substrate/client.go b/internal/substrate/client.go
+index 7e65273..52b342e 100644
+--- a/internal/substrate/client.go
++++ b/internal/substrate/client.go
+@@ -245,7 +245,7 @@ func BuildActorTemplate(atespace, name, image string, envMap map[string]string,
+ 			Image:   image,
+ 			Command: command,
+ 			Env:     envList,
+-			Readyz: &ateapipb.ContainerReadyz{
++			WakeupProbe: &ateapipb.ContainerWakeupProbe{
+ 				HttpGet: &ateapipb.HTTPGetAction{
+ 					Path: "/readyz",
+ 					Port: 80,
+@@ -260,13 +260,10 @@ func BuildActorTemplate(atespace, name, image string, envMap map[string]string,
+ 			Name:       "workspace",
+ 			DurableDir: &ateapipb.DurableDirVolumeSource{},
+ 		}},
+-		SnapshotsConfig: &ateapipb.SnapshotsConfig{
++		SnapshotConfig: &ateapipb.SnapshotConfig{
+ 			StorageLocation: snapshotsBucket,
+ 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+ 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+-			OnResume: &ateapipb.OnResumeConfig{
+-				FromData: ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN,
+-			},
+ 		},
+ 		SandboxConfig: &ateapipb.SandboxConfig{
+ 			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+@@ -387,8 +384,8 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorName string) (*
+ 		return nil, "", fmt.Errorf("nil actor returned when resuming %s/%s", atespace, actorName)
+ 	}
+ 	var workerIP string
+-	if resp.Actor.Status != nil && resp.Actor.Status.WorkerAssignment != nil {
+-		workerIP = resp.Actor.Status.WorkerAssignment.WorkerPodIp
++	if ips := resp.Actor.GetStatus().GetWorkerAssignment().GetWorkerPodIps(); len(ips) > 0 {
++		workerIP = ips[0]
+ 	}
+ 	return resp.Actor, workerIP, nil
+ }
+@@ -505,5 +502,3 @@ func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, templateName
+ 	}
+ 	return nil
+ }
+-
+-
+diff --git a/internal/substrate/client_test.go b/internal/substrate/client_test.go
+index 2d88949..c862df2 100644
+--- a/internal/substrate/client_test.go
++++ b/internal/substrate/client_test.go
+@@ -37,6 +37,20 @@ type mockControlClient struct {
+ 	actorRemaining int // Number of GetActor calls before returning NotFound
+ }
+ 
++func TestBuildActorTemplate_CurrentSubstrateAPI(t *testing.T) {
++	tmpl := BuildActorTemplate("ax-lab", "current-api", "localhost:5001/runner@sha256:abc", nil, nil, "gs://ate-snapshots/lab/ax/")
++	if tmpl.GetSnapshotConfig().GetOnCommit() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
++		t.Fatal("expected DATA snapshots")
++	}
++	if tmpl.GetSnapshotConfig().GetStorageLocation() != "gs://ate-snapshots/lab/ax/" {
++		t.Fatal("snapshot location was not preserved")
++	}
++	probe := tmpl.GetContainers()[0].GetWakeupProbe().GetHttpGet()
++	if probe.GetPath() != "/readyz" || probe.GetPort() != 80 {
++		t.Fatal("expected an HTTP wakeup probe on /readyz:80")
++	}
++}
++
+ func (m *mockControlClient) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequest, opts ...grpc.CallOption) (*ateapipb.Actor, error) {
+ 	m.mu.Lock()
+ 	defer m.mu.Unlock()

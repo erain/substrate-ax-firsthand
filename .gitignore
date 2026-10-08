@@ -1,0 +1,7 @@
+/.cache/
+/.local/
+/bin/
+*.log
+.env
+*.pem
+*.key

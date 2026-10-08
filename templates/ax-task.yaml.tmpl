@@ -1,0 +1,19 @@
+# AX API resources: apply with ax, not kubectl apply.
+apiVersion: ax.io/v1alpha1
+kind: Workspace
+metadata:
+  name: scratch
+  atespace: firsthand
+spec: {}
+---
+apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: task-one
+  atespace: firsthand
+spec:
+  image: @RUNNER_IMAGE@
+  debug: true
+  workspaces:
+    - name: scratch
+      path: /workspace
