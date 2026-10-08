@@ -1,47 +1,37 @@
 # So you want to get started with Agent Substrate and AX?
 
-*Two hands-on experiments: pause a process that remembers, then resume a task whose workspace survives.*
+*A local lab for Kubernetes users, with Docker and Go.*
 
-If you know Kubernetes, you know how to run an agent in a Pod. But **should every agent session need its own live Pod—even when it has nothing to do?**
+Running a coding agent in a Pod is straightforward. Deciding what to do with that Pod while the user is away is less obvious. You can leave it running, or stop it and rebuild the environment when the user comes back. A volume can keep the files. The process's memory is another matter.
 
-Imagine a platform hosting thousands of coding-agent sessions. Each has files, tools, and execution state. Some are working; others are waiting for a human to come back. In a one-Pod-per-session design, you can keep their processes alive to preserve that context, or stop them and arrange to reconstruct it later. A persistent volume helps with files; it doesn't, by itself, preserve process memory.
+That's what drew me to [Agent Substrate](https://github.com/agent-substrate/substrate/tree/7245baad8a6fd58f81c32338395b74484547fc12). Kubernetes runs a pool of worker Pods. Substrate runs applications, called *actors*, inside those workers. It can save an actor's state when you suspend it and restore it onto an available worker later. Waking an actor doesn't necessarily involve scheduling a new Pod.
 
-[Agent Substrate](https://github.com/agent-substrate/substrate/tree/7245baad8a6fd58f81c32338395b74484547fc12) explores a different split: Kubernetes manages a pool of ready worker Pods; Substrate manages the actors that use them. Actors can be suspended into snapshots and restored onto available workers. Activating an actor need not mean scheduling a new Pod. The design separates the number of sessions you retain from the execution capacity they currently occupy.
+If you run lots of sessions, this lets you save the idle ones instead of keeping every process alive. Kubernetes still manages the worker capacity.
 
-[AX](https://github.com/google/ax/tree/ac2332829f22360ff97b0ba34d94dd0dd782f17e) adds the developer-facing layer: declarative Tasks, Workspaces, and Model configuration, with an `apply`/`get`/`watch` workflow that Kubernetes users will recognize.
+[AX](https://github.com/google/ax/tree/ac2332829f22360ff97b0ba34d94dd0dd782f17e) builds on Substrate. You give it a Task and a Workspace, and it handles the underlying actor. Its YAML and `apply`/`get`/`watch` commands will look familiar if you use Kubernetes.
 
-If you build developer platforms or operate sandboxed workloads, that's the reason to explore both: **how do you share compute without treating every pause as starting over—and what API should developers use to ask for it?** Your Kubernetes knowledge remains useful; the interesting part is deciding what belongs above the Pod layer. These are early-stage projects to investigate, not a recommendation to migrate production workloads.
+When I first tried this, I kept checking the worker Pods. I could create an actor, send it a request, suspend it, and bring it back, but the Pods hadn't changed. Watching a counter keep its in-memory value through that cycle helped me understand what Substrate was doing.
 
-I understood that split much better after watching a counter wake up, remember its in-memory value, and run inside the same worker Pod. That's what we'll do here, then contrast it with an AX task whose workspace survives but whose runtime starts fresh. No LLM key, no model bill, and no need to take a performance claim on faith.
+We'll do that first, then try an AX task and check which files survive a resume. We'll run the commands ourselves; no LLM account or API key is needed.
 
-**Start here:** a Linux/amd64 development machine with **Docker running and Go installed**. You don't need Kind, kubectl, Git, Make, an existing cluster, a cloud account, or an LLM key. We will install the lab here, then do the two experiments. Modern Go can download the required toolchain automatically; leave that default enabled. [Go toolchain documentation](https://go.dev/doc/toolchain).
+## Before you start
 
-Allow 10–20 minutes for the experiments, plus the initial downloads and builds. Setup is part of this walkthrough, not homework; its total time depends on your machine and network. This is an experimental local lab, not a production recipe. macOS and ARM are not validated by this edition.
+Use a Linux x86-64 machine with Docker running and Go installed. The setup command supplies Kind, kubectl, Git, Make, curl, and jq in a Docker container, so you don't need to install those on your host. Leave Go's [automatic toolchain downloads](https://go.dev/doc/toolchain) enabled.
 
-For a reference point, my fresh-cluster setup took about eight minutes with fresh source/Go caches but some Docker layers already cached. A completely cold machine may take longer, and the setup/cache downloads use several gigabytes of disk.
+Allow about 10–20 minutes for the exercises, plus setup time. Setup took about eight minutes on my machine with fresh source and Go caches, but some Docker layers were already cached. A first install may take longer. You'll also need several gigabytes of disk space for the downloads and builds.
 
-**Companion code:** [substrate-ax-firsthand](https://github.com/erain/substrate-ax-firsthand). It pins both projects and includes the small AX API adjustment required for this combination. Please don't mix these samples with two moving `main` branches.
+Both projects are still changing quickly. The [companion repo](https://github.com/erain/substrate-ax-firsthand) uses specific commits and includes a small AX patch to make those versions work together. Stick with those versions for this walkthrough. This is a development lab; I haven't validated macOS or ARM, and I wouldn't use this setup for production.
 
-## The mental model, in three lines
+## 1. Set up the lab
 
-Kubernetes supplies worker Pods: ready execution capacity.
-
-[Agent Substrate](https://github.com/agent-substrate/substrate/tree/7245baad8a6fd58f81c32338395b74484547fc12) manages actors within that capacity: activation, request routing, snapshots, suspend, and restore.
-
-[AX](https://github.com/google/ax/tree/ac2332829f22360ff97b0ba34d94dd0dd782f17e) adds developer-facing Tasks and Workspaces on top. A Model is another AX primitive, but we won't exercise it today.
-
-The interesting difference is that creating or waking an actor does not inherently require creating a new Kubernetes Pod. A prepared worker can execute it. We will observe one lifecycle—not benchmark the project's scale or latency claims.
-
-## 1. Build the lab, starting with Docker and Go
-
-Download the companion's [ZIP archive](https://github.com/erain/substrate-ax-firsthand/archive/refs/heads/main.zip) in your browser and extract it. No Git installation is necessary. In a terminal, enter the extracted directory and run:
+Download and extract the [ZIP archive](https://github.com/erain/substrate-ax-firsthand/archive/refs/heads/main.zip). Open a terminal in the extracted directory and run:
 
 ```sh
 cd substrate-ax-firsthand-main
 go run -buildvcs=false ./cmd/lab setup
 ```
 
-The `-buildvcs=false` flag lets Go build the launcher without needing Git on your host. The launcher supplies the other tools in a private Docker container, then guides you through six stages:
+The `-buildvcs=false` flag avoids requiring Git on your host. You'll see six setup stages:
 
 ```text
 [1/6] Provision the private development toolbox
@@ -53,11 +43,11 @@ The `-buildvcs=false` flag lets Go build the launcher without needing Git on you
 Lab ready ...
 ```
 
-Here's what appeared: **Kind** runs Kubernetes nodes as Docker containers; the local registry supplies their images. **Substrate** adds the actor lifecycle and ready workers, with local snapshot storage. **AX** adds its own task API and control plane. The toolbox is just development tooling, not another execution layer for your actors.
+The script creates a Kind cluster, a local image registry, and a container with the development tools. It installs Substrate, its workers and local snapshot storage, then AX. You don't need a cloud account.
 
-The toolbox uses your Docker socket, so run trusted code on a private development machine. It keeps a private kubeconfig in `.local/kubeconfig` and does not switch your other contexts. It refuses to replace an existing cluster named `firsthand`. Keep this directory: it holds the lab's tools and connection state.
+Use a private development machine: the tool container has access to your Docker socket. The lab keeps its own kubeconfig in `.local/kubeconfig` and leaves your normal context alone. Setup won't overwrite an existing cluster named `firsthand`. Keep the extracted directory where it is; the tool container mounts it.
 
-Check the three layers before proceeding:
+When setup prints `Lab ready`, check the cluster:
 
 ```sh
 ./scripts/kube get nodes
@@ -66,19 +56,21 @@ Check the three layers before proceeding:
 ./scripts/kube get pods -n firsthand-ax
 ```
 
-You should see a Ready node, healthy Substrate services, a ready worker, and the AX server and Redis running. A bucket-initialization Job marked `Completed` is normal. These wrappers use the toolbox's tools, so host kubectl still isn't required. Generated YAML is in `.local/rendered/`; inspect it whenever you're curious. If setup fails, its detailed log is `.local/setup.log`; the companion [recovery notes](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/TROUBLESHOOTING.md) explain how to resume without deleting the cluster.
+You should see a Ready node, running Substrate services and workers, and the AX server and Redis. A storage-initialization Job showing `Completed` is fine. `scripts/kube` runs kubectl inside the tool container.
 
-## 2. Suspend a process that remembers
+If setup fails, check `.local/setup.log` and the [troubleshooting guide](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/TROUBLESHOOTING.md) before retrying. Once the script has recorded successful cluster creation, rerunning setup resumes the install without recreating the cluster.
 
-In a second terminal, from the companion directory, leave this running:
+## 2. Try Substrate with a counter
+
+Open a second terminal in the same directory and run:
 
 ```sh
 ./scripts/router
 ```
 
-It forwards the Substrate router to `127.0.0.1:18080`. Keep that terminal open.
+Leave it running. This forwards Substrate's router to `127.0.0.1:18080`; our requests will go through it. If that port is in use, the [README](https://github.com/erain/substrate-ax-firsthand#1-try-the-counter) explains how to pick another one.
 
-Look at `.local/rendered/counter-template.yaml`. The important part is:
+Back in your first terminal, open `.local/rendered/counter-template.yaml`. Setup generated the full file for you. Here's the part we'll use:
 
 ```yaml
 workerSelector:
@@ -91,9 +83,9 @@ snapshotConfig:
   storageLocation: gs://ate-snapshots/firsthand/counter/
 ```
 
-An ActorTemplate names the application image and its execution configuration. The WorkerPool names the worker runtime image and provisions capacity. The selector connects them. **The actor's application image is not the worker's runtime image.**
+The ActorTemplate describes our application: the counter image, its settings, and its durable `/data` directory. The WorkerPool describes the worker Pods, including their runtime image. These are two different images. The label selector tells Substrate which workers the counter can use.
 
-Create a counter:
+Create a counter actor and record the worker Pod's UID and restart count:
 
 ```sh
 ./scripts/ate create actor counter-one -a firsthand --template counter
@@ -103,9 +95,9 @@ Create a counter:
   -o 'custom-columns=NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
 ```
 
-The actor starts suspended. Note the worker Pod UID and restart count.
+The new actor should be suspended. We'll wake it by sending a request rather than calling resume.
 
-Our tiny counter increments two values on every POST: one held only in process memory, the other saved in `/data/count.txt`.
+The counter keeps two numbers: `memoryCount` in process memory, and `fileCount` in `/data/count.txt`. Every POST increments both. Give the request wrapper a shorter name and call it twice:
 
 ```sh
 hit() {
@@ -122,16 +114,18 @@ You should see:
 {"fileCount":2,"memoryCount":2}
 ```
 
-The wrapper sends an HTTP POST with `ate-target-actor: firsthand/counter-one` through that router. Its curl also lives in the toolbox. The request activated the actor. Now suspend it and inspect the checkpoint:
+`scripts/request` runs curl in the tool container. It sends a POST through the router with the header `ate-target-actor: firsthand/counter-one`. The first request wakes the actor.
+
+Now suspend it:
 
 ```sh
 ./scripts/ate suspend actor counter-one -a firsthand
 ./scripts/ate get actor counter-one -a firsthand -o yaml
 ```
 
-Look for `ACTOR_STATE_SUSPENDED` and `status.externalSnapshot`. Its content scope is `FULL`, and its URI identifies the stored snapshot. In this Kind lab, local storage handles that logical `gs://` location; it does not require your own Google Cloud bucket.
+In the YAML, look for `ACTOR_STATE_SUSPENDED` and `status.externalSnapshot`. The snapshot's content scope is `FULL`: it includes the actor's memory as well as filesystem state. The URI points to the saved snapshot. Although it starts with `gs://`, this lab uses local storage, not your own Google Cloud bucket.
 
-**Before running the next command, predict the result.** If a fresh process simply read the file, what would happen to the memory counter?
+What would you expect `memoryCount` to be if the next request started a new process? Keep that in mind and try another request. Don't resume the actor manually.
 
 ```sh
 hit
@@ -140,21 +134,23 @@ hit
   -o 'custom-columns=NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
 ```
 
-Expected: `{"fileCount":3,"memoryCount":3}`, with the same Pod UID and restart count.
+You should get `{"fileCount":3,"memoryCount":3}`. The worker Pod should still have the same UID and restart count.
 
-This isn't application-level reconstruction: our counter deliberately starts its memory value at zero and never initializes it from the file. A fresh process with the saved file would return `memoryCount:1`. The restored process returns `3`.
+The memory value matters here. The counter starts it at zero and never loads it from the saved file; you can check that in [its source](https://github.com/erain/substrate-ax-firsthand/blob/main/cmd/counter/main.go). If Substrate had started a new counter process with the old file, you'd see `fileCount:3` and `memoryCount:1`. Both are `3` because it restored the process state.
 
-That's the first aha: **the Pod is capacity; the actor is the stateful execution you can suspend and restore inside it.** The incoming request wakes it without an explicit resume command.
+The worker Pod was already there. The request brought the actor back inside that capacity. That's the behavior I couldn't see just by listing Pods.
 
-Release the counter's active capacity before the next experiment:
+Suspend the counter again to free up worker capacity:
 
 ```sh
 ./scripts/ate suspend actor counter-one -a firsthand
 ```
 
-## 3. Give AX a task and a workspace
+## 3. Try an AX task
 
-Open `.local/rendered/ax-task.yaml`. It contains just a Workspace and a Task:
+AX creates Substrate actors for you. Here we'll give it a Task with a Workspace mounted at `/workspace`.
+
+Open `.local/rendered/ax-task.yaml`. It looks like this, with a real image digest filled in:
 
 ```yaml
 apiVersion: ax.io/v1alpha1
@@ -177,16 +173,16 @@ spec:
       path: /workspace
 ```
 
-Use the generated file; the image line above is an explanatory placeholder. Apply it through **AX**, not `kubectl`:
+Use the generated file, not the example above: `YOUR_GENERATED_RUNNER_IMAGE_DIGEST` is a placeholder. Apply it with AX:
 
 ```sh
 ./scripts/ax apply -f .local/rendered/ax-task.yaml
 ./scripts/ax resume task task-one -a firsthand
 ```
 
-This pinned version creates tasks suspended, hence the explicit resume. We leave `spec.command` empty and run the experiment ourselves after activation.
+This version of AX creates the task suspended, so we resume it explicitly. The task uses a debug runner with no `spec.command`; we'll run the calculation ourselves once it's ready.
 
-Compute a result inside the sandbox, and create a second file outside the workspace:
+Run this inside the task:
 
 ```sh
 ./scripts/ax ssh task-one -a firsthand -- sh -ec '
@@ -196,9 +192,9 @@ Compute a result inside the sandbox, and create a second file outside the worksp
 '
 ```
 
-You should see `60`. AX's `ssh` command executes in the running guest; we're not installing an SSH daemon or provisioning another Pod.
+You should see `60`. The command adds three numbers, saves the answer in the workspace, and creates a marker in `/tmp`. AX calls this command `ssh`, but it executes in the sandbox without an SSH daemon.
 
-**Prediction time: which file will survive?**
+We now have two files in different places. Will both still be there after a suspend and resume?
 
 ```sh
 ./scripts/ax suspend task task-one -a firsthand
@@ -217,16 +213,16 @@ Expected:
 Transient marker is gone
 ```
 
-This is the second aha: **“resume” doesn't always mean preserving the process.** AX's generated template uses `DATA` snapshots: the durable workspace returns, but the runtime starts fresh. Our `/tmp` marker was in the non-durable writable image layer.
+The result is still in `/workspace`, but the marker is gone. AX's generated ActorTemplate uses `DATA` snapshots. It saves the durable workspace and restores it into a fresh runtime. The writable image layer, where we put the `/tmp` marker, doesn't survive.
 
-Contrast the two experiments:
+This is different from the counter's `FULL` snapshot:
 
 | Experiment | Snapshot | What survived |
 |---|---|---|
 | Substrate counter | FULL | RAM counter and durable file |
 | AX task | DATA | Durable workspace result, not the `/tmp` marker |
 
-Peek beneath AX to see its Substrate actor and generated template:
+You can inspect the Substrate actor and template that AX created. Then suspend the task when you're done:
 
 ```sh
 ./scripts/ate get actor task-one -a firsthand -o yaml
@@ -234,18 +230,14 @@ Peek beneath AX to see its Substrate actor and generated template:
 ./scripts/ax suspend task task-one -a firsthand
 ```
 
-One version-specific caveat: AX's template in this pin doesn't select a dedicated worker pool or forward Task resource limits. Don't assume this Task used our counter's worker Pod. And `Running` describes the live runner, not proof that your command completed successfully.
+A couple of details about this AX version: its generated template doesn't select the counter's worker pool or pass through Task resource limits. The task may use other eligible gVisor workers in the lab. Also, a task marked `Running` means the runner is alive, not that your calculation succeeded. Check the command's output and exit status for that.
 
-## What you know now
+## Clean up
 
-You have created an actor, activated it by request, executed code, suspended it, and restored it. Then you declared an AX task and saw exactly what its workspace-oriented resume preserves.
-
-We used a counter and a tiny calculation because they make state unambiguous. This is not yet an autonomous AI agent. An agent harness and real model calls are the next layer; knowing what persists first makes that layer much easier to reason about.
-
-When finished, stop the router with Ctrl-C and review the companion [cleanup guide](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/CLEANUP.md):
+Stop the router in your second terminal with Ctrl-C. Read the [cleanup guide](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/CLEANUP.md), then remove the tutorial resources:
 
 ```sh
 CONFIRM_TUTORIAL_CLEANUP=yes ./bin/lab cleanup
 ```
 
-That removes the named tutorial fixtures, not other labs or the shared cluster. It doesn't purge stored snapshot bytes. Both projects are evolving quickly, so keep the pinned versions, inspect the YAML, and let the observed state—not a lifecycle verb—tell you what happened.
+This deletes the tutorial's actors, task, workspace, worker pool, and AX services. You'll lose access to the counter and result through those resources. It leaves the Kind cluster, shared Substrate services, other labs, and stored snapshots in place. Rerun the setup command if you want to do the walkthrough again.

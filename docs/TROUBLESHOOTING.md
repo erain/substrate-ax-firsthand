@@ -1,10 +1,10 @@
-# Small failures, useful explanations
+# Troubleshooting
 
 ## Setup failed or appears to be taking a long time
 
 The launcher prints a heartbeat every 30 seconds during a build or download, and stores detailed output in `.local/setup.log`. Open that file in your editor; host curl, jq, kubectl, and Make are not needed. Check Docker disk space, memory and network access before retrying. A first source build is different from a warmed-up actor activation.
 
-Once successful cluster creation has been recorded, re-run `go run -buildvcs=false ./cmd/lab setup` to resume installation without recreating that cluster. An unrecognised existing cluster or failed/partial creation is deliberately a refusal. Do not delete another lab or override that guard to make the tutorial work.
+Once the launcher has recorded successful cluster creation, rerun `go run -buildvcs=false ./cmd/lab setup` to resume installation without recreating the cluster. If it finds a cluster it doesn't recognize, or cluster creation failed partway through, it stops. Check the error before deciding what to do; don't delete another lab or bypass the guard.
 
 ## Go asks for a newer toolchain
 

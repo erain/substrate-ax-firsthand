@@ -10,7 +10,8 @@ The article remains a draft. No Substack or LinkedIn post has been published as 
 - Audience: developers comfortable with containers and basic Kubernetes.
 - Entry point: Docker running and modern Go installed; ZIP download avoids requiring host Git. Setup is in the article, not a prerequisite reading detour.
 - Promise: an end-to-end path, with 10–20 minutes of experiments plus measured, clearly qualified initial setup/build time. Do not promise an unmeasured cold laptop-to-cluster duration.
-- Hook: ask whether every idle agent session needs a live Pod. Connect that platform-design question to Substrate's actor/capacity split and AX's declarative API, then prove full-state restoration with two counters and contrast AX's workspace/data restoration.
+- Opening: start with the choice of keeping an idle session's Pod running or rebuilding its environment later. Explain how Substrate and AX approach that problem, then get to the lab.
+- Voice: write as someone explaining the commands to another developer. Keep instructions and expected output close together. Avoid slogans, repeated summaries, and announcing "aha moments." Any first-person experience should come from the actual lab work, not an invented anecdote.
 - No API keys, model charges, autonomous-loop claims, density benchmarks, or production-hardening claims.
 - Local Linux/amd64 edition. A custom runner keeps the first task independent of Git downloads, workspace goals, and model setup.
 
@@ -28,8 +29,8 @@ Tag the tested companion release and consider linking that tag's setup guide fro
 
 ## Suggested Substack presentation
 
-- Subtitle: “Two hands-on experiments: pause a process that remembers, then resume a task whose workspace survives.”
-- Use the two prediction prompts as short pause points. They are the learning path, not incidental prose.
+- Subtitle: “A local lab for Kubernetes users, with Docker and Go.”
+- Keep the questions before the two resume checks. Give readers a moment to consider the result before showing it.
 - Optional lead screenshot: terminal output showing `1/1 → 2/2 → 3/3` beside the unchanged worker UID. Capture a real test; redact host/user details.
 - Keep deep snapshot internals, credential injection, egress policy, model billing, and the bounded agent loop for follow-up articles.
 - LinkedIn adaptation is explicitly outside this preparation task.

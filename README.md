@@ -1,15 +1,14 @@
 # So you want to get started with Agent Substrate and AX?
 
-Two small experiments, two observable differences:
+This repo sets up a local Kind cluster with Substrate and AX, then walks you through two examples. First, you'll suspend a counter and wake it with an HTTP request. Then you'll write a file in an AX workspace and see what survives a resume.
 
-1. **Substrate:** suspend an HTTP counter, then wake it with a request. Its RAM counter and file counter both continue; the worker Pod UID stays the same.
-2. **AX:** create a Task with a Workspace, write a result, suspend, and resume. The workspace result survives; a file outside the durable workspace does not.
+You need a Linux x86-64 machine, a running local Docker daemon, and modern Go with automatic toolchain downloads enabled. Setup supplies Kind, kubectl, Git, Make, curl, and jq in a Docker container. No model account or API key is needed.
 
-Start with **Docker and Go**; setup is included below, with no host Kind, kubectl, Git, Make, curl, or jq installation required. Allow **10–20 minutes for the experiments plus initial downloads/builds**. This is a local Linux/amd64 tutorial, not a production deployment or a performance benchmark. No model account, API key, or paid model call is required.
+Allow about 10–20 minutes for the exercises, plus the initial downloads and builds. This is a development lab, not a production setup. See [validation](docs/VALIDATION.md) for what we've tested and which platforms we haven't.
 
-The [article draft](article/substack.md) tells the story. This README is the runnable version. Both projects are pre-stable; see [versions.env](versions.env) and the [compatibility note](docs/SETUP.md#why-is-there-an-ax-patch).
+Follow the steps below, or read the [article draft](article/substack.md) for more background. Both projects are changing quickly, so use the versions in [versions.env](versions.env). The [setup guide](docs/SETUP.md#why-is-there-an-ax-patch) explains the small AX patch included here.
 
-## 0. Install the complete lab
+## 0. Set up the lab
 
 Download and extract the [repository ZIP](https://github.com/erain/substrate-ax-firsthand/archive/refs/heads/main.zip), or clone [erain/substrate-ax-firsthand](https://github.com/erain/substrate-ax-firsthand) if you already use Git, then work from its root.
 
@@ -19,9 +18,9 @@ With a running local Docker daemon and modern Go (automatic toolchain downloads 
 go run -buildvcs=false ./cmd/lab setup
 ```
 
-The launcher reports six stages: private tool container; pinned sources; Kind/registry; Substrate/storage/workers; built CLIs and images; AX and tutorial fixtures. It waits for readiness and saves detailed output in `.local/setup.log`. Kind, kubectl, Git, Make, curl, and jq are provided inside the toolbox, not installed globally. It mounts the local Docker socket; only run this on a trusted development machine.
+The launcher creates a tool container, downloads the pinned source, creates Kind and a local registry, and installs Substrate and AX. It builds the sample images and waits for the services and worker Pods to be ready. Detailed output goes to `.local/setup.log`. The tool container mounts your Docker socket, so use a trusted development machine.
 
-Verify the result:
+When setup finishes, check the cluster:
 
 ```sh
 ./scripts/kube get nodes
@@ -30,39 +29,41 @@ Verify the result:
 ./scripts/kube get pods -n firsthand-ax
 ```
 
-Expect a Ready Kind node and Running/ready Substrate workers and AX services. Your actors have not yet been created. The private kubeconfig is `.local/kubeconfig`; your other kubeconfig contexts are unchanged. The launcher refuses unknown existing clusters and preserves an earlier prepared lab instead of silently retargeting it. After a failed installation, diagnose the log and rerun the setup command to resume owned stages. See [SETUP.md](docs/SETUP.md) for details and the optional existing-lab route.
+You should see a Ready node, healthy Substrate workers and services, and the AX server and Redis running. A storage-initialization Job marked `Completed` is normal. We haven't created our actors yet.
 
-Builds push only to the local registry and produce digest-pinned YAML in `.local/rendered/`. Keep the companion directory in place: the persistent toolbox mounts it. Moving it is not supported.
+The lab uses `.local/kubeconfig` and leaves your usual context alone. Setup refuses an existing cluster it doesn't recognize. If installation fails after successful cluster creation has been recorded, check the log and rerun setup; it resumes without recreating the cluster. See [SETUP.md](docs/SETUP.md) for details and the optional existing-lab route.
 
-The wrappers `scripts/ate`, `scripts/ax`, and `scripts/kube` use the context saved by `prepare`. `scripts/ax` targets the tutorial's own AX server in `firsthand-ax`, with a private tunnel cache in `.local/ax/` and no inherited `AX_SERVER` override. Switching your current kubectl context does not retarget these wrappers.
+You'll find the generated YAML in `.local/rendered/`. Its image digests come from the local registry; nothing is pushed to a public registry. Keep this directory where it is, because the tool container mounts it.
 
-## 1. A process that remembers
+Use the `scripts/ate`, `scripts/ax`, and `scripts/kube` wrappers throughout. They use the saved lab context, even if you change your normal kubectl context. The AX wrapper connects to this tutorial's server in `firsthand-ax`, not another AX installation. [SETUP.md](docs/SETUP.md#configuring-local-commands) has the connection details.
 
-Start the router forward in **a second terminal**, from this repository:
+## 1. Try the counter
+
+Open a second terminal in this directory and start the router forward:
 
 ```sh
 ./scripts/router
 ```
 
-Keep it running. It listens only on `127.0.0.1:18080`. If that port is occupied, select another during setup, for example `go run -buildvcs=false ./cmd/lab --port 28080 setup`; the router and request wrappers then use that saved port. Do not stop another person's port-forward.
+Leave it running. It listens on `127.0.0.1:18080`. If the port is occupied, rerun setup with another port, for example `go run -buildvcs=false ./cmd/lab --port 28080 setup`. Both the router and request wrappers will use it. Leave any unrelated port-forwards alone.
 
-In your working terminal, inspect the two manifests:
+Back in your first terminal, look at the two manifests:
 
 ```sh
 sed -n '1,100p' .local/rendered/worker-pool.yaml
 sed -n '1,120p' .local/rendered/counter-template.yaml
 ```
 
-The WorkerPool is a Kubernetes resource with a **worker runtime image**. The ActorTemplate is a Substrate API resource with the **counter application image**, a worker label selector, a durable `/data` directory, and `FULL` snapshots. They are different resources with different owners; do not `kubectl apply` the ActorTemplate.
+The WorkerPool is a Kubernetes resource. It describes the worker Pods and their runtime image. The ActorTemplate belongs to Substrate's API: it describes the counter application image, which workers it can use, its durable `/data` directory, and its `FULL` snapshot settings. The application image and worker runtime image are different. You don't apply the ActorTemplate with kubectl.
 
-Create an actor and check that it starts suspended:
+Create the actor and check its state:
 
 ```sh
 ./scripts/ate create actor counter-one -a firsthand --template counter
 ./scripts/ate get actor counter-one -a firsthand -o yaml
 ```
 
-Record the worker identity, including its UID and restart count:
+The actor should start suspended. Record the worker Pod's UID and restart count so we can compare them later:
 
 ```sh
 ./scripts/kube get pods -n firsthand-lab \
@@ -70,7 +71,7 @@ Record the worker identity, including its UID and restart count:
   -o 'custom-columns=NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
 ```
 
-Define a request and call it twice:
+Our counter increments two numbers on each POST: one in memory and one in `/data/count.txt`. Give the request wrapper a shorter name and call it twice:
 
 ```sh
 hit() {
@@ -87,7 +88,7 @@ Expected:
 {"fileCount":2,"memoryCount":2}
 ```
 
-`scripts/request` runs curl in the toolbox: an HTTP POST to the forwarded router with `ate-target-actor: firsthand/counter-one`. The first request activates the suspended actor. Inspect the now-running actor, then suspend it:
+`scripts/request` sends a POST through the router with the header `ate-target-actor: firsthand/counter-one`. It runs curl in the tool container. The first request wakes the actor. Check that it's running, then suspend it:
 
 ```sh
 ./scripts/ate get actor counter-one -a firsthand -o yaml
@@ -95,9 +96,9 @@ Expected:
 ./scripts/ate get actor counter-one -a firsthand -o yaml
 ```
 
-Find `status.state: ACTOR_STATE_SUSPENDED` and `status.externalSnapshot`. Its content scope is `FULL`; its URI identifies the stored snapshot. On Kind, the configured local storage backend handles it—you do not need a Google Cloud account just because the logical URI starts with `gs://`.
+Look for `status.state: ACTOR_STATE_SUSPENDED` and `status.externalSnapshot`. The snapshot scope should be `FULL`, which includes memory and filesystem state. Its URI identifies the saved snapshot. This lab uses local storage for that `gs://` location; you don't need a Google Cloud account.
 
-Now send another request, with **no explicit resume**:
+What would happen to the memory counter if this started a new process? Try another request without calling resume:
 
 ```sh
 hit
@@ -106,19 +107,19 @@ hit
   -o 'custom-columns=NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
 ```
 
-Expected: `{"fileCount":3,"memoryCount":3}`, with the same worker Pod UID and restart count. The code deliberately does **not** reload the RAM counter from the file on startup. A new process with the same file would return `memoryCount:1`, not `3`; the unit test proves that distinction.
+You should get `{"fileCount":3,"memoryCount":3}`, with the same worker Pod UID and restart count.
 
-**Predict before continuing:** is this a new Pod, a new process initialized from a file, or a restored process? The observation supports the third: Substrate restores full actor state inside existing worker capacity. This is not a claim about exactly-once requests or what happens after a worker failure.
+The counter never initializes its memory value from the saved file. A new process with that file would return `fileCount:3` and `memoryCount:1`; the unit test covers this case. Getting both values back shows that Substrate restored the process state. Checking the Pod tells us that it used the existing worker capacity. We haven't tested worker failures or exactly-once request handling here.
 
-Suspend the counter so it releases active capacity:
+Suspend the counter again to free up capacity:
 
 ```sh
 ./scripts/ate suspend actor counter-one -a firsthand
 ```
 
-## 2. A task whose workspace survives
+## 2. Try an AX task
 
-Inspect the AX manifest, then apply it through AX, not Kubernetes:
+AX creates the underlying Substrate actor for us. Inspect the manifest, apply it through AX, and resume the task:
 
 ```sh
 sed -n '1,120p' .local/rendered/ax-task.yaml
@@ -127,9 +128,9 @@ sed -n '1,120p' .local/rendered/ax-task.yaml
 ./scripts/ax resume task task-one -a firsthand
 ```
 
-The manifest declares an empty `scratch` Workspace and a debug-enabled Task using our small runner image. This pinned AX version creates the task suspended, so resume is explicit. There is no `spec.command`: we run the experiment explicitly after activation, not during template preparation.
+The manifest has an empty Workspace named `scratch`, mounted at `/workspace`, and a Task using our debug runner. This AX version creates tasks suspended, so we resume explicitly. We leave `spec.command` empty and run the calculation ourselves once the task is ready.
 
-Create a tiny computed artifact and a transient marker:
+Add three numbers and save the result in the workspace. Also create a marker in `/tmp`:
 
 ```sh
 ./scripts/ax ssh task-one -a firsthand -- sh -ec '
@@ -139,9 +140,9 @@ Create a tiny computed artifact and a transient marker:
 '
 ```
 
-Expected: `60`. Here `ssh` is AX's guest-execution command, not an SSH daemon or a new Pod.
+You should see `60`. AX calls this command `ssh`, but it executes in the sandbox without an SSH daemon.
 
-**Predict first:** will both files survive? Then check:
+Will both files still be there after a resume? Suspend the task, resume it, and check:
 
 ```sh
 ./scripts/ax suspend task task-one -a firsthand
@@ -160,9 +161,9 @@ Expected:
 Transient marker is gone
 ```
 
-AX's generated ActorTemplate uses **DATA** snapshots. The durable workspace is restored into a fresh runtime; the writable image layer containing our `/tmp` marker is not preserved. This is not the counter's RAM-preserving `FULL` resume.
+AX's generated ActorTemplate uses `DATA` snapshots. It restores the durable workspace into a fresh runtime, so `result.txt` survives. The writable image layer containing the `/tmp` marker doesn't. This differs from the counter's `FULL` snapshot, which also restored memory.
 
-Inspect the underlying resources to connect the layers:
+Look at the actor and template AX created, then suspend the task when you're done:
 
 ```sh
 ./scripts/ate get actor task-one -a firsthand -o yaml
@@ -170,17 +171,17 @@ Inspect the underlying resources to connect the layers:
 ./scripts/ax suspend task task-one -a firsthand
 ```
 
-At this pin, the AX-generated template does not specify a dedicated worker selector or forward Task resource limits. Do not infer those guarantees from the manifest or assume the AX task ran in `firsthand-workers`. The counter's selector is explicit; AX can use other eligible gVisor capacity in this lab.
+This AX version doesn't set a dedicated worker selector or pass through Task resource limits in its generated template. The counter selects `firsthand-workers`, but AX can use other eligible gVisor workers in this lab. Also, `Running` means the task's runner is alive, not that your command succeeded. Use the command's output and exit status to check that.
 
-## What you have actually demonstrated
+## Where each resource fits
 
-| Layer | Your object | What the experiment observes |
+| API | Objects you used | What they manage |
 |---|---|---|
-| Kubernetes | WorkerPool / worker Pod | Ready sandbox capacity outlives actor activations |
-| Substrate | ActorTemplate / Actor | Request activation and full-state suspend/restore |
-| AX | Workspace / Task | Higher-level declaration and workspace-preserving suspend/restore |
+| Kubernetes | WorkerPool / worker Pod | Worker capacity |
+| Substrate | ActorTemplate / Actor | Application settings, requests, and saved execution state |
+| AX | Workspace / Task | Task environment and the underlying Substrate actor |
 
-A `Model` is another AX primitive, but we intentionally do not exercise it here. This is an introduction to execution and state, not an autonomous LLM agent, credential tutorial, density measurement, or complete API tour.
+AX also has a `Model` resource. We haven't used it here: the calculation runs through the debug command, not an autonomous agent or model call.
 
 ## Tests, recovery, and cleanup
 
@@ -189,14 +190,14 @@ A `Model` is another AX primitive, but we intentionally do not exercise it here.
 ./bin/lab smoke     # end-to-end assertions; requires unused tutorial names
 ```
 
-If you have followed the manual walkthrough, the smoke test will refuse to reuse your actors. It is intended for a clean tutorial scope, not to overwrite an existing run. See [validation](docs/VALIDATION.md) and [troubleshooting](docs/TROUBLESHOOTING.md).
+The smoke test uses the same actor, task, and workspace names as this walkthrough. If they already exist, it stops rather than overwriting them. Run it in a clean tutorial scope. See [validation](docs/VALIDATION.md) for test results and [troubleshooting](docs/TROUBLESHOOTING.md) if something doesn't match the expected output.
 
-When finished, suspend both workloads, stop the router terminal with Ctrl-C, then review [CLEANUP.md](docs/CLEANUP.md):
+When finished, suspend both workloads and stop the router terminal with Ctrl-C. Read [CLEANUP.md](docs/CLEANUP.md), then remove the tutorial resources:
 
 ```sh
 CONFIRM_TUTORIAL_CLEANUP=yes ./bin/lab cleanup
 ```
 
-Cleanup deletes the named tutorial fixtures and their live state, not your other labs, shared Substrate, cluster, registry, or snapshot bucket. It is not a complete storage purge. Re-running the setup command prepares another walkthrough without recreating the owned cluster.
+Cleanup deletes the tutorial resources and their live state. You'll lose access to the counter and result through those resources. It leaves other labs, shared Substrate, the cluster, registry, and stored snapshots in place. Rerun setup to prepare another walkthrough on the same cluster.
 
 See [NOTICE](NOTICE) for upstream attribution and [the article publishing checklist](article/PUBLISHING.md) before publishing the Substack draft.
