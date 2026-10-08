@@ -16,13 +16,21 @@ Check `docker info`. This edition needs a local, rootful Linux/amd64 Docker daem
 
 ## AX reaches the wrong namespace
 
-Use `./scripts/ax`, not a bare `ax`. This pin caches tunnels by context rather than by context and namespace. The wrapper isolates `AX_HOME` in `.local/ax/` and removes inherited `AX_SERVER` overrides. Check `./scripts/ax tunnel list`: the tutorial tunnel should say `firsthand-ax`. Do not stop or repurpose another lab's tunnel.
+Run AX from `./bin/lab shell` and pass `--context kind-firsthand --namespace firsthand-ax`. This pin caches tunnels by context rather than by context and namespace. The shell isolates `AX_HOME` in `.local/ax/` and removes inherited `AX_SERVER` overrides. Check `ax --context kind-firsthand --namespace firsthand-ax tunnel list`: the tutorial tunnel should say `firsthand-ax`. Don't reuse this cache for another AX namespace or stop another lab's tunnel.
 
 ## curl cannot connect to port 18080
 
-The router port-forward is not running, the wrong port is used, or the port is occupied. In a second terminal, from this repo, run `./scripts/router` and leave it running. Check its output before retrying `./scripts/request`. A port-forward is a local connection, not an actor or a durable service installation.
+The router port-forward is not running, the wrong port is used, or the port is occupied. In a second host terminal, enter `./bin/lab shell` and run:
 
-If you set a different `TUTORIAL_PORT` before preparation, use that port. Do not stop another person's port-forward to take its port.
+```sh
+kubectl --context kind-firsthand --namespace ate-system \
+  port-forward service/atenet-router "${TUTORIAL_PORT}:80" \
+  --address=127.0.0.1
+```
+
+Leave it running and check its output before retrying curl from the first lab shell. The forward lasts only while that command is running.
+
+If the port is occupied, exit the tool shells and rerun setup on your host with another port, for example `go run -buildvcs=false ./cmd/lab --port 28080 setup`. Reenter the shells to pick up the saved port. Do not stop another person's port-forward to take its port.
 
 ## Counter does not return 1/1 on the first request
 
@@ -30,19 +38,19 @@ This probably is not a fresh `counter-one`. Requests increment state, including 
 
 ## ActorTemplate has no golden tag
 
-`install` waits for preparation before handing you the lab. Inspect:
+Setup no longer creates the counter's WorkerPool or ActorTemplate. Apply and create them using the walkthrough commands first, then inspect their status from the lab shell:
 
 ```sh
-./scripts/ate get actor-template counter -a firsthand -o yaml
-./scripts/kube get pods -n firsthand-lab
-./scripts/kube get workerpools -A
+kubectl ate --context kind-firsthand get actor-template counter --atespace firsthand -o yaml
+kubectl --context kind-firsthand get pods --namespace firsthand-lab
+kubectl --context kind-firsthand get workerpools -A
 ```
 
-Golden preparation needs compatible active worker capacity and snapshot storage. Check image pull errors, node version labels, template error status, and Substrate logs. Do not infer a working install merely from CRD existence.
+Golden preparation needs compatible active worker capacity and snapshot storage. Wait for `status.goldenSnapshotStatus.goldenTag.name` before creating an actor. Check image pull errors, node version labels, template error status, and Substrate logs if it doesn't appear.
 
 ## AX Task is Suspended after apply
 
-Expected for this pinned version. Run `./scripts/ax resume task task-one -a firsthand`, then inspect `./scripts/ax get task task-one -a firsthand`. The runner has no automatic application command in this demo; you execute the computation through `ax ssh` once it is ready.
+Expected for this pinned version. From the lab shell, run `ax --context kind-firsthand --namespace firsthand-ax resume task task-one --atespace firsthand`, then inspect it with `ax --context kind-firsthand --namespace firsthand-ax get task task-one --atespace firsthand`. The runner has no automatic application command in this demo; you execute the computation through `ax ssh` once it is ready.
 
 ## AX task is Running after my command returned
 
@@ -50,7 +58,7 @@ The debug runner is still running. This pin does not turn the one-off guest comm
 
 ## /tmp marker survives
 
-Check that you suspended and resumed the right Task through `scripts/ax`, not the counter or another AX installation. Inspect its Substrate ActorTemplate's `snapshotConfig`: the AX sample should use DATA, not FULL. Suspend does not mean keeping the original writable image layer for DATA snapshots.
+Check that you used the lab shell and `--namespace firsthand-ax`, and suspended the right task rather than the counter. Inspect its Substrate ActorTemplate's `snapshotConfig`: the AX sample should use DATA, not FULL. Suspend does not mean keeping the original writable image layer for DATA snapshots.
 
 ## AX apply reports no available workers
 

@@ -1,11 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
 # Kubernetes owns the worker capacity, not the actor identities.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: firsthand-lab
-  labels:
-    firsthand-owner: substrate-ax-tutorial
----
 apiVersion: ate.dev/v1alpha1
 kind: WorkerPool
 metadata:

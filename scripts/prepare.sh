@@ -48,6 +48,7 @@ REDIS_IMAGE="$TUTORIAL_REGISTRY/firsthand-redis@$redis_digest"
 for variable in TUTORIAL_CONTEXT TUTORIAL_REGISTRY TUTORIAL_PORT WORKER_IMAGE NODE_VERSION COUNTER_IMAGE RUNNER_IMAGE AX_IMAGE REDIS_IMAGE; do
   printf '%s=%q\n' "$variable" "${!variable}"
 done > .local/state.env
+render templates/lab-namespace.yaml.tmpl .local/rendered/lab-namespace.yaml
 render templates/worker-pool.yaml.tmpl .local/rendered/worker-pool.yaml
 render templates/counter-template.yaml.tmpl .local/rendered/counter-template.yaml
 render templates/ax-control-plane.yaml.tmpl .local/rendered/ax-control-plane.yaml

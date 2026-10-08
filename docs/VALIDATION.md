@@ -2,7 +2,9 @@
 
 Validation date: **2026-10-08**. This is evidence for the pinned pair, not a promise about future upstream versions.
 
-## Existing-lab route
+The first two sections record the earlier walkthrough, which installed counter fixtures automatically and used command wrappers. The native-CLI section below covers the current walkthrough.
+
+## Existing-lab route (earlier walkthrough)
 
 Test host: Ubuntu 24.04, Linux/amd64, local rootful Docker 29.7.2, Go 1.27.1 toolchain, and an existing Kind Substrate lab running Kubernetes 1.37. Source versions are the full commits in `versions.env`; Substrate's node build label is `v0.3.0-69-g7245baad`.
 
@@ -20,7 +22,7 @@ The article's counter and AX command blocks were replayed from zsh; observed out
 
 The automated test leaves its own actors suspended for inspection. Cleanup and reinstall can prepare a fresh manual run; do not assume smoke-test identities are unused afterwards.
 
-## Docker-and-Go setup route
+## Docker-and-Go setup route (earlier walkthrough)
 
 The launcher was run against a fresh companion directory with no source or Go cache, no private kubeconfig, and no `firsthand` cluster. It downloaded the sources from the public repositories, built the private toolbox, created a new Kind cluster, installed Substrate and snapshot storage, built AX and the samples, installed the fixtures, and reached readiness in **7 minutes 58 seconds**.
 
@@ -43,6 +45,24 @@ Toolbox unit tests also cover ownership refusal, argument preservation without a
 The manual article flow was replayed on the new cluster using `scripts/request` and the two-terminal router wrapper. It produced the expected `1/1 → 2/2 → 3/3`, unchanged worker UID/restarts, and AX `60` with no transient marker. Ctrl-C in the router terminal closed its listener; a subsequent connection failed as expected rather than leaving a background forward behind. Only disposable test actor/task/workspace identities were removed afterwards.
 
 The final launcher also passed a Go-and-Docker-only PATH setup rerun with `--port 28080` in about one minute, retaining the same Kind cluster. This exercises the configurable router port and atomic state/binary installation in the final source revision.
+
+## Native-CLI walkthrough
+
+The revised setup and article were tested on the same owned `kind-firsthand` lab, after scoped cleanup of the disposable tutorial fixtures. The source, image, and toolchain caches were warm; this is not another fresh-install timing.
+
+Confirmed:
+
+- Setup completed in 55 seconds and left the counter WorkerPool and ActorTemplate absent. The tutorial namespaces, Substrate platform, and independent AX server were ready.
+- `./bin/lab shell` supplied the real CLIs with the private kubeconfig, saved port, and toolbox-epoch AX cache. Commands were copied from the article's shell blocks, rather than replaced with wrapper calls.
+- The reader's `kubectl apply`, Deployment wait/rollout, and `kubectl ate create actor-template` commands created the counter capacity and starting snapshot. The first template inspection showed an empty status; another inspection showed the golden tag, as the instructions describe.
+- Direct curl requests produced `1/1 → 2/2 → 3/3` across a FULL suspend/restore. The worker Pod UID stayed the same and its restart count remained zero.
+- AX apply, resume, guest execution, suspend, and resume produced `60` in the workspace and removed the transient `/tmp` marker. The underlying actor showed a DATA snapshot under `gs://ate-snapshots/firsthand/ax/`.
+- Port 28080 was already occupied by an unrelated forward. The documented setup retry with `--port 28081` preserved the cluster and existing counter WorkerPool. New shells picked up the port, and the raw kubectl port-forward worked. Ctrl-C closed only that forward; the existing listener on 28080 remained untouched.
+- The host kubeconfig's current context remained `kind-e2e` throughout this replay.
+
+Unit tests cover the new shell environment, literal argument preservation, missing-private-state refusals, and the installer leaving counter resource creation to the reader. The counter fixture helper also refuses an unowned namespace before writing resources. These negative branches were exercised without a cluster or Docker daemon.
+
+Both host `make test` and toolbox `./bin/lab test` passed, including race detection, vet, shell syntax, and fail-closed guards. After scoped cleanup and AX reinstallation, `./bin/lab smoke` created the counter fixtures through the new helper and passed the FULL/DATA assertions. Cleanup removed only the disposable tutorial identities and control plane; the cluster, shared platform, unrelated forward, and stored snapshot bytes were preserved.
 
 ## Not established yet
 

@@ -20,32 +20,48 @@ go run -buildvcs=false ./cmd/lab setup
 
 The launcher creates a tool container, downloads the pinned source, creates Kind and a local registry, and installs Substrate and AX. It builds the sample images and waits for the services and worker Pods to be ready. Detailed output goes to `.local/setup.log`. The tool container mounts your Docker socket, so use a trusted development machine.
 
-When setup finishes, check the cluster:
+When setup finishes, enter the tool container:
 
 ```sh
-./scripts/kube get nodes
-./scripts/kube get pods -n ate-system
-./scripts/kube get pods -n firsthand-lab
-./scripts/kube get pods -n firsthand-ax
+./bin/lab shell
 ```
 
-You should see a Ready node, healthy Substrate workers and services, and the AX server and Redis running. A storage-initialization Job marked `Completed` is normal. We haven't created our actors yet.
+This adds the built CLIs to PATH and selects the private kubeconfig and AX tunnel cache. It doesn't alias or replace the commands. Use the actual `kubectl`, `kubectl ate`, `ax`, and `curl` tools below. Type `exit` to return to your host.
+
+Check the cluster from this shell:
+
+```sh
+kubectl --context kind-firsthand get nodes
+kubectl --context kind-firsthand get pods --namespace ate-system
+kubectl --context kind-firsthand get namespace firsthand-lab firsthand-ax
+kubectl --context kind-firsthand get pods --namespace firsthand-ax
+```
+
+You should see a Ready node, healthy Substrate services, both tutorial namespaces, and the AX server and Redis running. A storage-initialization Job marked `Completed` is normal. We'll create the counter's worker pool, template, and actor below; `firsthand-lab` has no counter Pods yet.
 
 The lab uses `.local/kubeconfig` and leaves your usual context alone. Setup refuses an existing cluster it doesn't recognize. If installation fails after successful cluster creation has been recorded, check the log and rerun setup; it resumes without recreating the cluster. See [SETUP.md](docs/SETUP.md) for details and the optional existing-lab route.
 
 You'll find the generated YAML in `.local/rendered/`. Its image digests come from the local registry; nothing is pushed to a public registry. Keep this directory where it is, because the tool container mounts it.
 
-Use the `scripts/ate`, `scripts/ax`, and `scripts/kube` wrappers throughout. They use the saved lab context, even if you change your normal kubectl context. The AX wrapper connects to this tutorial's server in `firsthand-ax`, not another AX installation. [SETUP.md](docs/SETUP.md#configuring-local-commands) has the connection details.
+The commands name `kind-firsthand` explicitly. For AX, also pass `--namespace firsthand-ax` to reach the tutorial server. The shell removes inherited `AX_SERVER` overrides and keeps AX's tunnels separate from other labs. [SETUP.md](docs/SETUP.md#configuring-local-commands) has the connection details.
 
 ## 1. Try the counter
 
-Open a second terminal in this directory and start the router forward:
+Open a second terminal in this directory on your host and enter the tool container:
 
 ```sh
-./scripts/router
+./bin/lab shell
 ```
 
-Leave it running. It listens on `127.0.0.1:18080`. If the port is occupied, rerun setup with another port, for example `go run -buildvcs=false ./cmd/lab --port 28080 setup`. Both the router and request wrappers will use it. Leave any unrelated port-forwards alone.
+In that shell, start the router forward:
+
+```sh
+kubectl --context kind-firsthand --namespace ate-system \
+  port-forward service/atenet-router "${TUTORIAL_PORT}:80" \
+  --address=127.0.0.1
+```
+
+Leave it running. The local port is `18080` unless you chose another during setup. If it's occupied, exit the tool shells and rerun setup on your host with another port, for example `go run -buildvcs=false ./cmd/lab --port 28080 setup`. Reenter the shells so they pick up the saved port. Leave unrelated port-forwards alone.
 
 Back in your first terminal, look at the two manifests:
 
@@ -54,31 +70,60 @@ sed -n '1,100p' .local/rendered/worker-pool.yaml
 sed -n '1,120p' .local/rendered/counter-template.yaml
 ```
 
-The WorkerPool is a Kubernetes resource. It describes the worker Pods and their runtime image. The ActorTemplate belongs to Substrate's API: it describes the counter application image, which workers it can use, its durable `/data` directory, and its `FULL` snapshot settings. The application image and worker runtime image are different. You don't apply the ActorTemplate with kubectl.
+The WorkerPool is a Kubernetes resource. It describes the worker Pods and their runtime image. The ActorTemplate belongs to Substrate's API: it describes the counter application image, which workers it can use, its durable `/data` directory, and its `FULL` snapshot settings. The application image and worker runtime image are different.
+
+Apply the WorkerPool, wait for its controller to create a Deployment, then wait for the rollout:
+
+```sh
+kubectl --context kind-firsthand apply -f .local/rendered/worker-pool.yaml
+kubectl --context kind-firsthand --namespace firsthand-lab \
+  wait --for=create deployment/firsthand-workers --timeout=60s
+kubectl --context kind-firsthand --namespace firsthand-lab \
+  rollout status deployment/firsthand-workers --timeout=180s
+```
+
+Create the ActorTemplate with the Substrate plugin:
+
+```sh
+kubectl ate --context kind-firsthand \
+  create actor-template -f .local/rendered/counter-template.yaml
+kubectl ate --context kind-firsthand \
+  get actor-template counter --atespace firsthand -o yaml
+```
+
+Wait until `status.goldenSnapshotStatus.goldenTag.name` has a value, rerunning the get command if necessary. Substrate is preparing the starting snapshot for new actors. Don't continue if the status reports an error; see [troubleshooting](docs/TROUBLESHOOTING.md#actortemplate-has-no-golden-tag).
+
+The `kubectl ate` plugin talks to Substrate's API; ActorTemplates aren't Kubernetes CRDs. Setup created the `firsthand` atespace for our actors. That is separate from the Kubernetes namespace `firsthand-lab` that holds our worker Pods.
 
 Create the actor and check its state:
 
 ```sh
-./scripts/ate create actor counter-one -a firsthand --template counter
-./scripts/ate get actor counter-one -a firsthand -o yaml
+kubectl ate --context kind-firsthand \
+  create actor counter-one --atespace firsthand --template counter
+kubectl ate --context kind-firsthand \
+  get actor counter-one --atespace firsthand -o yaml
 ```
 
 The actor should start suspended. Record the worker Pod's UID and restart count so we can compare them later:
 
 ```sh
-./scripts/kube get pods -n firsthand-lab \
+kubectl --context kind-firsthand get pods --namespace firsthand-lab \
   -l ate.dev/worker-pool=firsthand-workers \
   -o 'custom-columns=NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
 ```
 
-Our counter increments two numbers on each POST: one in memory and one in `/data/count.txt`. Give the request wrapper a shorter name and call it twice:
+Our counter increments two numbers on each POST: one in memory and one in `/data/count.txt`. Send two requests:
 
 ```sh
-hit() {
-  ./scripts/request
-}
-hit
-hit
+curl --fail --silent --show-error --max-time 60 \
+  --request POST \
+  --header 'ate-target-actor: firsthand/counter-one' \
+  "http://127.0.0.1:${TUTORIAL_PORT}/"
+
+curl --fail --silent --show-error --max-time 60 \
+  --request POST \
+  --header 'ate-target-actor: firsthand/counter-one' \
+  "http://127.0.0.1:${TUTORIAL_PORT}/"
 ```
 
 Expected:
@@ -88,12 +133,15 @@ Expected:
 {"fileCount":2,"memoryCount":2}
 ```
 
-`scripts/request` sends a POST through the router with the header `ate-target-actor: firsthand/counter-one`. It runs curl in the tool container. The first request wakes the actor. Check that it's running, then suspend it:
+The header `ate-target-actor: firsthand/counter-one` selects the actor. The first request wakes it. Check that it's running, then suspend it:
 
 ```sh
-./scripts/ate get actor counter-one -a firsthand -o yaml
-./scripts/ate suspend actor counter-one -a firsthand
-./scripts/ate get actor counter-one -a firsthand -o yaml
+kubectl ate --context kind-firsthand \
+  get actor counter-one --atespace firsthand -o yaml
+kubectl ate --context kind-firsthand \
+  suspend actor counter-one --atespace firsthand
+kubectl ate --context kind-firsthand \
+  get actor counter-one --atespace firsthand -o yaml
 ```
 
 Look for `status.state: ACTOR_STATE_SUSPENDED` and `status.externalSnapshot`. The snapshot scope should be `FULL`, which includes memory and filesystem state. Its URI identifies the saved snapshot. This lab uses local storage for that `gs://` location; you don't need a Google Cloud account.
@@ -101,8 +149,11 @@ Look for `status.state: ACTOR_STATE_SUSPENDED` and `status.externalSnapshot`. Th
 What would happen to the memory counter if this started a new process? Try another request without calling resume:
 
 ```sh
-hit
-./scripts/kube get pods -n firsthand-lab \
+curl --fail --silent --show-error --max-time 60 \
+  --request POST \
+  --header 'ate-target-actor: firsthand/counter-one' \
+  "http://127.0.0.1:${TUTORIAL_PORT}/"
+kubectl --context kind-firsthand get pods --namespace firsthand-lab \
   -l ate.dev/worker-pool=firsthand-workers \
   -o 'custom-columns=NAME:.metadata.name,UID:.metadata.uid,RESTARTS:.status.containerStatuses[0].restartCount'
 ```
@@ -114,7 +165,8 @@ The counter never initializes its memory value from the saved file. A new proces
 Suspend the counter again to free up capacity:
 
 ```sh
-./scripts/ate suspend actor counter-one -a firsthand
+kubectl ate --context kind-firsthand \
+  suspend actor counter-one --atespace firsthand
 ```
 
 ## 2. Try an AX task
@@ -123,9 +175,12 @@ AX creates the underlying Substrate actor for us. Inspect the manifest, apply it
 
 ```sh
 sed -n '1,120p' .local/rendered/ax-task.yaml
-./scripts/ax apply -f .local/rendered/ax-task.yaml
-./scripts/ax get task task-one -a firsthand
-./scripts/ax resume task task-one -a firsthand
+ax --context kind-firsthand --namespace firsthand-ax \
+  apply -f .local/rendered/ax-task.yaml
+ax --context kind-firsthand --namespace firsthand-ax \
+  get task task-one --atespace firsthand
+ax --context kind-firsthand --namespace firsthand-ax \
+  resume task task-one --atespace firsthand
 ```
 
 The manifest has an empty Workspace named `scratch`, mounted at `/workspace`, and a Task using our debug runner. This AX version creates tasks suspended, so we resume explicitly. We leave `spec.command` empty and run the calculation ourselves once the task is ready.
@@ -133,7 +188,8 @@ The manifest has an empty Workspace named `scratch`, mounted at `/workspace`, an
 Add three numbers and save the result in the workspace. Also create a marker in `/tmp`:
 
 ```sh
-./scripts/ax ssh task-one -a firsthand -- sh -ec '
+ax --context kind-firsthand --namespace firsthand-ax \
+  ssh task-one --atespace firsthand -- sh -ec '
   printf "%s\n" 10 20 30 | awk "{total+=\$1} END {print total}" > /workspace/result.txt
   echo transient > /tmp/firsthand-marker
   cat /workspace/result.txt
@@ -145,9 +201,12 @@ You should see `60`. AX calls this command `ssh`, but it executes in the sandbox
 Will both files still be there after a resume? Suspend the task, resume it, and check:
 
 ```sh
-./scripts/ax suspend task task-one -a firsthand
-./scripts/ax resume task task-one -a firsthand
-./scripts/ax ssh task-one -a firsthand -- sh -ec '
+ax --context kind-firsthand --namespace firsthand-ax \
+  suspend task task-one --atespace firsthand
+ax --context kind-firsthand --namespace firsthand-ax \
+  resume task task-one --atespace firsthand
+ax --context kind-firsthand --namespace firsthand-ax \
+  ssh task-one --atespace firsthand -- sh -ec '
   cat /workspace/result.txt
   test ! -e /tmp/firsthand-marker
   echo "Transient marker is gone"
@@ -166,9 +225,12 @@ AX's generated ActorTemplate uses `DATA` snapshots. It restores the durable work
 Look at the actor and template AX created, then suspend the task when you're done:
 
 ```sh
-./scripts/ate get actor task-one -a firsthand -o yaml
-./scripts/ate get actor-templates -a firsthand
-./scripts/ax suspend task task-one -a firsthand
+kubectl ate --context kind-firsthand \
+  get actor task-one --atespace firsthand -o yaml
+kubectl ate --context kind-firsthand \
+  get actor-templates --atespace firsthand
+ax --context kind-firsthand --namespace firsthand-ax \
+  suspend task task-one --atespace firsthand
 ```
 
 This AX version doesn't set a dedicated worker selector or pass through Task resource limits in its generated template. The counter selects `firsthand-workers`, but AX can use other eligible gVisor workers in this lab. Also, `Running` means the task's runner is alive, not that your command succeeded. Use the command's output and exit status to check that.
@@ -185,6 +247,8 @@ AX also has a `Model` resource. We haven't used it here: the calculation runs th
 
 ## Tests, recovery, and cleanup
 
+Run these checks from your host terminal:
+
 ```sh
 ./bin/lab test      # unit tests, race detector, vet, shell syntax, safety guards
 ./bin/lab smoke     # end-to-end assertions; requires unused tutorial names
@@ -192,7 +256,7 @@ AX also has a `Model` resource. We haven't used it here: the calculation runs th
 
 The smoke test uses the same actor, task, and workspace names as this walkthrough. If they already exist, it stops rather than overwriting them. Run it in a clean tutorial scope. See [validation](docs/VALIDATION.md) for test results and [troubleshooting](docs/TROUBLESHOOTING.md) if something doesn't match the expected output.
 
-When finished, suspend both workloads and stop the router terminal with Ctrl-C. Read [CLEANUP.md](docs/CLEANUP.md), then remove the tutorial resources:
+When finished with the walkthrough, suspend both workloads and stop the port-forward with Ctrl-C. Type `exit` in both tool shells. Read [CLEANUP.md](docs/CLEANUP.md), then remove the tutorial resources from your host:
 
 ```sh
 CONFIRM_TUTORIAL_CLEANUP=yes ./bin/lab cleanup

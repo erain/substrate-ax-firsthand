@@ -1,6 +1,6 @@
 # Cleanup scope
 
-First suspend the counter and AX task if they are still running, then stop your `scripts/router` terminal with Ctrl-C. Stopping the port-forward does not stop either workload.
+First suspend the counter and AX task if they are still running, then stop the `kubectl port-forward` command with Ctrl-C. Stopping the port-forward does not stop either workload. Type `exit` in both tool shells and run cleanup from your host terminal.
 
 Review `.local/state.env` to confirm the intended context. Cleanup requires both namespace ownership labels to match, and requires an explicit confirmation:
 
@@ -23,4 +23,4 @@ It preserves the namespace objects, service account, atespace, shared Substrate 
 
 The optional host-tooling route uses `CONFIRM_TUTORIAL_CLEANUP=yes make cleanup` instead. The main route uses the command above and needs no host Make.
 
-Run the setup command again to recreate the fixtures for another walkthrough without recreating the owned cluster. The toolbox and private kubeconfig remain, as do downloaded caches. Full cluster, registry, and toolbox deletion are separate operator actions, deliberately not scripted here. Do not remove or move this directory while its toolbox is running.
+Run setup again to reinstall AX without recreating the owned cluster, then follow the walkthrough to recreate the counter's worker pool and template. The toolbox and private kubeconfig remain, as do downloaded caches. Full cluster, registry, and toolbox deletion are separate operator actions, deliberately not scripted here. Do not remove or move this directory while its toolbox is running.

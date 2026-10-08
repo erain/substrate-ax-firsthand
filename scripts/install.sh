@@ -12,21 +12,10 @@ for namespace in "$TUTORIAL_NAMESPACE" "$TUTORIAL_AX_NAMESPACE"; do
     test "$owner" = substrate-ax-tutorial || die "Namespace $namespace exists without our ownership label."
   fi
 done
-k apply -f "$TUTORIAL_ROOT/.local/rendered/worker-pool.yaml"
-k rollout status deployment/firsthand-workers -n "$TUTORIAL_NAMESPACE" --timeout=180s
+k apply -f "$TUTORIAL_ROOT/.local/rendered/lab-namespace.yaml"
 if ! ate get atespace "$TUTORIAL_ATESPACE" >/dev/null 2>&1; then ate create atespace "$TUTORIAL_ATESPACE"; fi
-if ! ate get actor-template counter -a "$TUTORIAL_ATESPACE" >/dev/null 2>&1; then
-  ate create actor-template -f "$TUTORIAL_ROOT/.local/rendered/counter-template.yaml"
-fi
-for attempt in {1..90}; do
-  status=$(ate get actor-template counter -a "$TUTORIAL_ATESPACE" -o json)
-  golden=$(jq -r '.status.goldenSnapshotStatus.goldenTag.name // empty' <<< "$status")
-  if test -n "$golden"; then break; fi
-  test "$attempt" != 90 || die "Golden snapshot was not ready in time. Inspect the template status."
-  sleep 2
-done
 k apply -f "$TUTORIAL_ROOT/.local/rendered/ax-control-plane.yaml"
 k rollout status deployment/firsthand-redis -n "$TUTORIAL_AX_NAMESPACE" --timeout=180s
 k rollout status deployment/ax-server -n "$TUTORIAL_AX_NAMESPACE" --timeout=180s
 ax get tasks -a "$TUTORIAL_ATESPACE"
-echo "Ready for the article. In a second terminal: bash scripts/router"
+echo "Platform ready. Enter ./bin/lab shell and create the counter's WorkerPool and ActorTemplate as shown in the article."

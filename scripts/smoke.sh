@@ -8,6 +8,7 @@ for actor in counter-one task-one; do
 done
 if ax get task task-one -a "$TUTORIAL_ATESPACE" >/dev/null 2>&1; then die "task-one metadata already exists; refusing to overwrite it."; fi
 if ax get workspace scratch -a "$TUTORIAL_ATESPACE" >/dev/null 2>&1; then die "scratch already exists; refusing to adopt it."; fi
+bash "$TUTORIAL_ROOT/scripts/counter-fixtures.sh"
 router_pid=
 finish() {
   if test -n "$router_pid"; then kill "$router_pid" 2>/dev/null || true; wait "$router_pid" 2>/dev/null || true; fi
@@ -43,4 +44,4 @@ ax ssh task-one -a "$TUTORIAL_ATESPACE" -- sh -ec 'test "$(cat /workspace/result
 ax suspend task task-one -a "$TUTORIAL_ATESPACE"
 ate get actor task-one -a "$TUTORIAL_ATESPACE" -o json | jq -e '.status.externalSnapshot.contentScope == "SNAPSHOT_CONTENT_SCOPE_DATA" and (.status.externalSnapshot.snapshotUri | startswith("gs://ate-snapshots/firsthand/ax/"))' >/dev/null
 echo "PASS: counter 1/1 -> 2/2 -> 3/3, unchanged worker UID; AX result 60 survives, /tmp marker does not."
-echo "Objects remain suspended for inspection. Use make cleanup when ready."
+echo "Objects remain suspended for inspection. Review docs/CLEANUP.md before removing them."

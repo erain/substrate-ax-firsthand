@@ -58,7 +58,7 @@ func run() error {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
-		return errors.New("usage: go run -buildvcs=false ./cmd/lab setup|test|smoke|cleanup|exec")
+		return errors.New("usage: go run -buildvcs=false ./cmd/lab setup|shell|test|smoke|cleanup|exec")
 	}
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return errors.New("this edition supports Linux/amd64 with a local Docker daemon")
@@ -110,6 +110,8 @@ func run() error {
 	}
 	var command []string
 	switch args[0] {
+	case "shell":
+		command = append([]string{"bash", "scripts/lab-shell.sh"}, args[1:]...)
 	case "exec":
 		command = args[1:]
 		if len(command) == 0 {
@@ -362,10 +364,10 @@ func (l *launcher) setup() error {
 	if err := l.inBox("[5/6] Build the pinned CLIs, AX server, runner, and counter images", "bash", "scripts/prepare.sh"); err != nil {
 		return err
 	}
-	if err := l.inBox("[6/6] Install AX and tutorial fixtures; wait for readiness", "bash", "scripts/install.sh"); err != nil {
+	if err := l.inBox("[6/6] Install AX and tutorial namespaces; wait for readiness", "bash", "scripts/install.sh"); err != nil {
 		return err
 	}
-	fmt.Printf("Lab ready in %s. Verify with ./scripts/kube get nodes, then follow the article.\n", time.Since(started).Round(time.Second))
+	fmt.Printf("Lab ready in %s. Enter ./bin/lab shell, then follow the article to create the counter's WorkerPool and ActorTemplate.\n", time.Since(started).Round(time.Second))
 	fmt.Println("Private kubeconfig: .local/kubeconfig. Other kubeconfig contexts were not changed.")
 	return nil
 }

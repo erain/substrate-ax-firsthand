@@ -12,7 +12,7 @@ This edition targets a **local, disposable Linux/amd64 Docker + Kind lab**. Setu
 
 Do not use a production kubeconfig context. No Google Cloud account, bucket, model credential, or LLM billing is necessary. The local Substrate install supplies snapshot storage.
 
-No host Kind, kubectl, Git, Make, curl, or jq installation is required. Use GitHub's Download ZIP button and extract the companion with your normal archive utility. The POSIX command wrappers run development tools inside the toolbox, not on the host.
+No host Kind, kubectl, Git, Make, curl, or jq installation is required. Use GitHub's Download ZIP button and extract the companion with your normal archive utility. After setup, `./bin/lab shell` provides these tools inside the toolbox.
 
 ## Main route: install the whole lab
 
@@ -28,7 +28,7 @@ The toolbox mounts the repository at its original absolute path, your local Dock
 
 The launcher uses `.local/kubeconfig`, not your usual kubeconfig. Cluster creation therefore does not switch your usual current context. The cached source, toolchain caches, rendered manifests, state, and a launcher binary are local artifacts. Keep this directory where it is; moving it breaks the toolbox bind mount.
 
-`bootstrap` checks that it is not replacing an existing `firsthand-control-plane` container, then invokes the pinned Substrate Kind creation script. It enables the certificate-related Kubernetes APIs required by this version. Next, `platform` installs Substrate plus its upstream counter demo. Credential injection is disabled because this tutorial uses no model credentials. Preparation builds AX and the samples; installation deploys the independent tutorial AX control plane and fixtures.
+`bootstrap` checks that it is not replacing an existing `firsthand-control-plane` container, then invokes the pinned Substrate Kind creation script. It enables the certificate-related Kubernetes APIs required by this version. Next, `platform` installs Substrate plus its upstream counter demo. Credential injection is disabled because this tutorial uses no model credentials. Preparation builds AX and the samples; installation deploys the independent tutorial AX control plane, namespaces, and `firsthand` atespace. It does not create the counter's worker pool or template. Readers create those through their respective APIs in the walkthrough.
 
 The local Docker registry is named `kind-registry`, exposed on host loopback port 5001. It can be shared with another compatible Kind lab. The bootstrap guard refuses a differently mapped existing registry rather than allowing the upstream script to replace it. A stopped existing registry needs operator attention before bootstrap; this package will not replace it.
 
@@ -36,16 +36,24 @@ Installation builds source and downloads images, so timing varies. See [validati
 
 If installation fails **after** the launcher recorded successful cluster creation, diagnose the log and rerun the same setup command. It verifies the owned cluster and resumes installation without recreating it. An unknown cluster, a partially failed creation, or a missing owned cluster is a refusal, not permission to delete and recreate. Direct `make bootstrap` is still strictly creation-only and refuses an existing cluster.
 
-Verify installation:
+Enter the tool container from your host:
 
 ```sh
-./scripts/kube get nodes
-./scripts/kube get pods -n ate-system
-./scripts/kube get pods -n firsthand-lab
-./scripts/kube get pods -n firsthand-ax
+./bin/lab shell
 ```
 
-Expect a Ready node and healthy services and workers. The actors themselves are created later in the tutorial.
+The shell puts `bin/` on PATH, uses `.local/kubeconfig`, removes inherited `AX_SERVER` overrides, and selects an AX tunnel cache private to this toolbox start. It starts Bash without user profile or rc files, so those cannot change these settings. The commands are the actual binaries, not aliases.
+
+Verify installation from that shell:
+
+```sh
+kubectl --context kind-firsthand get nodes
+kubectl --context kind-firsthand get pods --namespace ate-system
+kubectl --context kind-firsthand get namespace firsthand-lab firsthand-ax
+kubectl --context kind-firsthand get pods --namespace firsthand-ax
+```
+
+Expect a Ready node, healthy Substrate services, both namespaces, and AX's server and Redis. The counter's worker Pods and actors are created later. Type `exit` to return to your host. For non-interactive checks, `./bin/lab shell COMMAND ARG...` runs a command in the same environment.
 
 ## Optional advanced route: reuse an exact compatible lab
 
@@ -59,13 +67,17 @@ make install
 
 `prepare` checks the API service, registry, digest-pinned worker image, and node version. It refuses a different build label rather than guessing compatibility. It does not upgrade your cluster. Inspect `versions.env` before trying another Substrate release.
 
+This route has no toolbox shell. Put the built `bin/` directory on your host PATH, keep the existing kubeconfig, set `AX_HOME` to a separate tutorial-only directory, and unset `AX_SERVER`. In the walkthrough's full commands, replace `kind-firsthand` with your saved context. Keep `--namespace firsthand-ax` on AX commands. The private lab-shell command is only for the main setup route.
+
 ## What preparation does
 
 1. Clones Substrate and AX into ignored `.cache/` directories and checks out exact commits from `versions.env`.
 2. Applies the version-specific AX source patch below; resolves Go modules; runs AX tests; builds the CLIs, server, runner, and tutorial counter.
 3. Builds images and pushes them to the **local** registry. Base image and Redis digests are pinned. The generated workload manifests use digests returned by the registry, not mutable `:lab` tags or this author's cached digests.
 4. Writes context and image references to ignored `.local/state.env`; renders inspectable YAML into `.local/rendered/`.
-5. `install` creates the owned namespaces `firsthand-lab` and `firsthand-ax`, the `firsthand-workers` WorkerPool, the `firsthand` atespace and `counter` ActorTemplate, and an isolated tutorial AX server with its own ephemeral Redis.
+5. `install` creates the owned namespaces `firsthand-lab` and `firsthand-ax`, the `firsthand` atespace, and an isolated tutorial AX server with its own ephemeral Redis. The walkthrough applies `worker-pool.yaml` with `kubectl` and creates `counter-template.yaml` with `kubectl ate`. Inspect the template's golden tag before creating an actor.
+
+The smoke test prepares the same counter resources automatically through `scripts/counter-fixtures.sh`. It checks namespace ownership before applying anything and waits for the worker Deployment and golden snapshot. The installer does not run that helper.
 
 Existing unlabelled namespaces with these names are rejected. This package never grants the tutorial access to model secrets. It does not modify the existing `ax-system` server or other atespaces. Use a disposable cluster if these names already mean something to you.
 
@@ -92,7 +104,7 @@ For the main route, the launcher uses `kind-firsthand`, the local registry on po
 go run -buildvcs=false ./cmd/lab --port 28080 setup
 ```
 
-The choice is saved and used by `scripts/router` and `scripts/request`. The following environment settings apply to the optional host-tooling route.
+The choice is saved and exported as `TUTORIAL_PORT` in the lab shell. The walkthrough's port-forward and curl commands use it. If you change it, exit and reenter both tool shells. The following environment settings apply to the optional host-tooling route.
 
 Set these **before** `make prepare`:
 
@@ -105,12 +117,12 @@ export TUTORIAL_REGISTRY=localhost:5001
 
 The generated state wins over later environment changes for the wrappers and install/smoke/cleanup scripts. To retarget, run preparation deliberately against the new compatible lab; do not hand-edit state to point cleanup at another cluster.
 
-This AX pin caches tunnels by Kubernetes context, without checking the requested namespace on reuse. The AX wrapper sets its documented `AX_HOME` to ignored `.local/ax/` and removes an inherited `AX_SERVER`, so an existing tunnel to `ax-system` cannot redirect tutorial calls. Use the wrappers throughout; a bare `ax` may reach a different server.
+This AX pin caches tunnels by Kubernetes context, without checking the requested namespace on reuse. The lab shell sets `AX_HOME` to a private directory under ignored `.local/ax/` and removes an inherited `AX_SERVER`. Use `ax --context kind-firsthand --namespace firsthand-ax` there. Don't use that cache to switch between AX namespaces; start a separate environment and cache for another server.
 
-In the main route, wrappers delegate through `bin/lab` into the persistent toolbox. This keeps AX's cached port-forwards alive between commands. `scripts/request` is a curl wrapper for the counter's routed HTTP POST, so host curl is unnecessary. Stop the router terminal with Ctrl-C when done.
+The toolbox persists between commands, so AX's cached port-forwards remain available. The article uses real kubectl, Substrate, AX, and curl commands from its shell. Stop the router port-forward with Ctrl-C and exit the shells when done. The `scripts/ate`, `scripts/ax`, `scripts/kube`, `scripts/router`, and `scripts/request` wrappers remain available for automation and existing experiments; the smoke and cleanup scripts still use the same saved context and private AX cache.
 
 The tunnel cache is additionally scoped to the toolbox's start epoch, so a toolbox restart cannot reuse stale process IDs from a previous PID namespace. If you deliberately update the toolbox Dockerfile, normal setup refuses an image mismatch. After reviewing that change, `go run -buildvcs=false ./cmd/lab --refresh-toolbox setup` replaces **only the labelled, owned toolbox**, ends its forwards, and preserves bind-mounted files and the Kind cluster. This is an explicit development upgrade path, not part of a reader's normal first setup.
 
 `SUBSTRATE_REPOSITORY` and `AX_REPOSITORY` can point at local Git repositories to seed the cached clones. This is a developer optimization, not a reader prerequisite; revisions remain pinned and uncommitted local changes are not cloned.
 
-For command-level learning, inspect `scripts/prepare.sh`, `scripts/install.sh`, and the generated manifests. Wrappers only choose the pinned binary, namespace, and context; they do not conceal lifecycle actions.
+For the installation details, inspect `scripts/prepare.sh`, `scripts/install.sh`, and the generated manifests. The walkthrough shows worker-pool creation, template creation, actor requests, and AX task operations explicitly. Keep the guarded cleanup command rather than replacing it with broad namespace deletion.
