@@ -237,11 +237,9 @@ This AX version doesn't set a dedicated worker selector or pass through Task res
 
 ## Where each resource fits
 
-| API | Objects you used | What they manage |
-|---|---|---|
-| Kubernetes | WorkerPool / worker Pod | Worker capacity |
-| Substrate | ActorTemplate / Actor | Application settings, requests, and saved execution state |
-| AX | Workspace / Task | Task environment and the underlying Substrate actor |
+- Kubernetes manages worker capacity through the WorkerPool and its worker Pods.
+- Substrate manages application settings, requests, and saved execution state through ActorTemplates and Actors.
+- AX manages the task environment and its underlying Substrate actor through Workspaces and Tasks.
 
 AX also has a `Model` resource. We haven't used it here: the calculation runs through the debug command, not an autonomous agent or model call.
 

@@ -22,7 +22,7 @@ The article remains a draft. No Substack or LinkedIn post has been published as 
 2. Have another developer follow the manual steps, including predictions and expected output, without help. Time only the defined hands-on portion; shorten the article if it exceeds 20 minutes.
 3. Review the AX patch against the pinned upstream API. Decide whether to retain the explicit tested patch or update the pair and re-test. Do not quietly switch to latest.
 4. Keep checking tracked files for tokens, kubeconfigs, personal paths, generated manifests, binary artifacts, and registry auth when updating the samples. `.cache/`, `.local/`, and `bin/` must remain untracked. No model credential belongs in this repo.
-5. Confirm both source links and companion links resolve. Compare every article command with the validated README. In Substack, check code blocks, line wrapping, quotes, table rendering, and that explanatory YAML isn't presented as copy-and-run input.
+5. Confirm both source links and companion links resolve. Compare every article command with the validated README. In Substack, check code blocks, line wrapping, quotes, and lists. Make sure explanatory YAML isn't presented as copy-and-run input. Use short lists for comparisons; tables don't copy cleanly.
 6. Review claims against observed results: same Pod does not establish every actor's placement or performance; DATA is not RAM restoration; Task Running is not task success. Retain the setup-time and early-stage caveats.
 7. Keep the public repository available before publishing the article; readers need the generated assets and setup scripts, not just copied excerpts.
 

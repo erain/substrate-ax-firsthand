@@ -272,12 +272,10 @@ Transient marker is gone
 
 The result is still in `/workspace`, but the marker is gone. AX's generated ActorTemplate uses `DATA` snapshots. It saves the durable workspace and restores it into a fresh runtime. The writable image layer, where we put the `/tmp` marker, doesn't survive.
 
-This is different from the counter's `FULL` snapshot:
+The two experiments show what each snapshot saves:
 
-| Experiment | Snapshot | What survived |
-|---|---|---|
-| Substrate counter | FULL | RAM counter and durable file |
-| AX task | DATA | Durable workspace result, not the `/tmp` marker |
+- The counter's `FULL` snapshot keeps both the in-memory counter and the durable file.
+- The AX task's `DATA` snapshot keeps the workspace result, but not the `/tmp` marker.
 
 You can inspect the Substrate actor and template that AX created. Then suspend the task when you're done:
 
