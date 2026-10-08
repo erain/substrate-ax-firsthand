@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -144,5 +146,45 @@ esac
 	output, err := runFixture(t, root, "counter-fixtures.sh", nil)
 	if err == nil || !strings.Contains(string(output), "Ownership mismatch for firsthand-lab") {
 		t.Fatalf("expected ownership refusal, got %v: %s", err, output)
+	}
+}
+
+func TestSmokeStopsItsRouterProcess(t *testing.T) {
+	root := shellFixture(t)
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	start, end := strings.Index(script, "router_pid=\n"), strings.Index(script, "\nate create actor")
+	if start < 0 || end <= start {
+		t.Fatal("cannot find the smoke test's router lifecycle block")
+	}
+	writeFixture(t, filepath.Join(root, "scripts", "router-test.sh"),
+		"#!/usr/bin/env bash\nsource \"$(dirname \"$0\")/common.sh\"\nload_state\n"+script[start:end]+"\n")
+	pidPath := filepath.Join(root, ".local", "router-pid")
+	writeFixture(t, filepath.Join(root, "bin", "kubectl"), `#!/usr/bin/env bash
+printf '%s\n' "$BASHPID" > "$LAB_TEST_ROUTER_PID"
+trap 'exit 0' TERM
+while :; do sleep 0.1; done
+`)
+	writeFixture(t, filepath.Join(root, "bin", "curl"), `#!/usr/bin/env bash
+test -s "$LAB_TEST_ROUTER_PID"
+`)
+	output, err := runFixture(t, root, "router-test.sh", []string{"LAB_TEST_ROUTER_PID=" + pidPath})
+	pidData, readErr := os.ReadFile(pidPath)
+	if readErr != nil {
+		t.Fatalf("router never started: %v (script: %v, %s)", readErr, err, output)
+	}
+	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if parseErr != nil || pid <= 0 {
+		t.Fatalf("invalid router PID: %q", pidData)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGTERM) })
+	if err != nil {
+		t.Fatalf("router lifecycle failed: %v: %s", err, output)
+	}
+	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+		t.Fatalf("router process %d remains after smoke exit: %v", pid, err)
 	}
 }

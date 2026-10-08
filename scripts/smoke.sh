@@ -14,7 +14,8 @@ finish() {
   if test -n "$router_pid"; then kill "$router_pid" 2>/dev/null || true; wait "$router_pid" 2>/dev/null || true; fi
 }
 trap finish EXIT
-k port-forward -n ate-system svc/atenet-router "$TUTORIAL_PORT:80" --address=127.0.0.1 > "$TUTORIAL_ROOT/.local/router.log" 2>&1 &
+# Launch the binary directly so the trap owns kubectl, not a function subshell.
+kubectl --context "$TUTORIAL_CONTEXT" port-forward -n ate-system svc/atenet-router "$TUTORIAL_PORT:80" --address=127.0.0.1 > "$TUTORIAL_ROOT/.local/router.log" 2>&1 &
 router_pid=$!
 for attempt in {1..30}; do
   kill -0 "$router_pid" 2>/dev/null || die "Router forward failed; check .local/router.log (port may be occupied)."

@@ -64,6 +64,8 @@ Unit tests cover the new shell environment, literal argument preservation, missi
 
 Both host `make test` and toolbox `./bin/lab test` passed, including race detection, vet, shell syntax, and fail-closed guards. After scoped cleanup and AX reinstallation, `./bin/lab smoke` created the counter fixtures through the new helper and passed the FULL/DATA assertions. Cleanup removed only the disposable tutorial identities and control plane; the cluster, shared platform, unrelated forward, and stored snapshot bytes were preserved.
 
+The final listener check caught a smoke-test cleanup bug: backgrounding the `k` shell function left its kubectl child running. The smoke test now launches kubectl directly so its exit trap owns the actual forward process. A process-lifecycle regression test failed with the old command and passed with the fix. A real smoke rerun passed, and the test port refused connections afterwards; the unrelated listener remained running.
+
 ## Not established yet
 
 - A completely cold Docker host with no registry, node image, or cached base/build layers, and its complete installation duration.
