@@ -1,8 +1,12 @@
 # Publication status and article checklist
 
-The companion repository is public at [erain/substrate-ax-firsthand](https://github.com/erain/substrate-ax-firsthand), on the `main` branch under Apache-2.0. The README and article link to that repository and its ZIP download.
+The companion repository is public at [erain/substrate-ax-firsthand](https://github.com/erain/substrate-ax-firsthand), on the `main` branch under Apache-2.0.
 
-The article remains a draft. No Substack or LinkedIn post has been published as part of this work.
+The article is published on [Substack](https://yiyu9.substack.com/p/so-you-want-to-get-started-with-agent).
+
+`article/substack.md` is the single source for the repository's tutorial. The root `README.md` is a relative symlink to it, so edit the article instead of maintaining two walkthroughs. Test commands and setup details live in `docs/SETUP.md`. Repository edits do not update the published Substack post automatically.
+
+Keep the counter section's `1-try-the-counter` custom anchor: the published article links to that section of the old README.
 
 ## Editorial choices made
 
@@ -22,7 +26,7 @@ The article remains a draft. No Substack or LinkedIn post has been published as 
 2. Have another developer follow the manual steps, including predictions and expected output, without help. Time only the defined hands-on portion; shorten the article if it exceeds 20 minutes.
 3. Review the AX patch against the pinned upstream API. Decide whether to retain the explicit tested patch or update the pair and re-test. Do not quietly switch to latest.
 4. Keep checking tracked files for tokens, kubeconfigs, personal paths, generated manifests, binary artifacts, and registry auth when updating the samples. `.cache/`, `.local/`, and `bin/` must remain untracked. No model credential belongs in this repo.
-5. Confirm both source links and companion links resolve. Compare every article command with the validated README. In Substack, check code blocks, line wrapping, quotes, and lists. Make sure explanatory YAML isn't presented as copy-and-run input. Use short lists for comparisons; tables don't copy cleanly.
+5. Confirm both source links and companion links resolve. Check the article's commands against the validated lab flow and confirm GitHub renders the symlinked README. In Substack, check code blocks, line wrapping, quotes, and lists. Make sure explanatory YAML isn't presented as copy-and-run input. Use short lists for comparisons; tables don't copy cleanly.
 6. Review claims against observed results: same Pod does not establish every actor's placement or performance; DATA is not RAM restoration; Task Running is not task success. Retain the setup-time and early-stage caveats.
 7. Keep the public repository available before publishing the article; readers need the generated assets and setup scripts, not just copied excerpts.
 
@@ -34,4 +38,4 @@ Tag the tested companion release and consider linking that tag's setup guide fro
 - Keep the questions before the two resume checks. Give readers a moment to consider the result before showing it.
 - Optional lead screenshot: terminal output showing `1/1 → 2/2 → 3/3` beside the unchanged worker UID. Capture a real test; redact host/user details.
 - Keep deep snapshot internals, credential injection, egress policy, model billing, and the bounded agent loop for follow-up articles.
-- LinkedIn adaptation is explicitly outside this preparation task.
+- LinkedIn copy can link to the published article; posting it is a separate action.

@@ -68,6 +68,8 @@ You should see a Ready node, running Substrate services, both tutorial namespace
 
 If setup fails, check `.local/setup.log` and the [troubleshooting guide](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/TROUBLESHOOTING.md) before retrying. Once the script has recorded successful cluster creation, rerunning setup resumes the install without recreating the cluster.
 
+<a name="1-try-the-counter"></a>
+
 ## 2. Try Substrate with a counter
 
 Open a second terminal in the same directory on your host and enter the tool container there too:
@@ -84,7 +86,7 @@ kubectl --context kind-firsthand --namespace ate-system \
   --address=127.0.0.1
 ```
 
-This forwards the router Service's port 80 to a local port, normally `18080`. The shell supplies `TUTORIAL_PORT` from setup; it also works if you chose another port. The [README](https://github.com/erain/substrate-ax-firsthand#1-try-the-counter) explains how to change it.
+This forwards the router Service's port 80 to a local port, normally `18080`. The shell supplies `TUTORIAL_PORT` from setup; it also works if you chose another port. If the port is occupied, exit both tool shells and rerun setup on your host with another port, for example `go run -buildvcs=false ./cmd/lab --port 28080 setup`. Reenter the shells to pick up the saved port. The [setup guide](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/SETUP.md#configuring-local-commands) has more details.
 
 Back in your first terminal, open `.local/rendered/counter-template.yaml`. Setup generated the full file for you. Here's the part we'll use:
 
@@ -299,3 +301,5 @@ CONFIRM_TUTORIAL_CLEANUP=yes ./bin/lab cleanup
 ```
 
 This deletes the tutorial's actors, task, workspace, worker pool, and AX services. You'll lose access to the counter and result through those resources. It leaves the Kind cluster, shared Substrate services, other labs, and stored snapshots in place. Rerun the setup command if you want to do the walkthrough again.
+
+For setup options and automated tests, see the [setup guide](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/SETUP.md). The [validation notes](https://github.com/erain/substrate-ax-firsthand/blob/main/docs/VALIDATION.md) record what we've tested and what we haven't. Upstream attribution is in [NOTICE](https://github.com/erain/substrate-ax-firsthand/blob/main/NOTICE).

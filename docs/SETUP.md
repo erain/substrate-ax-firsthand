@@ -83,6 +83,19 @@ Existing unlabelled namespaces with these names are rejected. This package never
 
 The tutorial's Redis has persistence disabled. Losing it loses AX resource metadata, even if snapshot objects still exist. This is not a durable production control plane. The tutorial does not expose public ingress; router forwarding binds loopback. Cluster-internal AX/Redis traffic is teaching-lab plumbing, not a hardened multi-tenant deployment.
 
+## Automated checks
+
+From your host terminal, run:
+
+```sh
+./bin/lab test      # unit tests, race detector, vet, shell syntax, safety guards
+./bin/lab smoke     # end-to-end assertions; requires unused tutorial names
+```
+
+The smoke test uses the same actor, task, and workspace names as the walkthrough. If they already exist, it stops rather than overwriting them. Use a clean tutorial scope; see [cleanup](CLEANUP.md) before removing an existing run. A successful smoke test leaves its workloads suspended for inspection and closes its router port-forward.
+
+See [validation](VALIDATION.md) for the test results and their limits. These exercises don't establish worker-failure recovery, exactly-once request handling, or production readiness.
+
 ## Why is there an AX patch?
 
 The pinned AX commit references older Substrate protobuf field names. Our lab runs a newer Substrate build. `compat/ax-substrate.patch` updates the wakeup-probe and snapshot-config fields, removes the obsolete `onResume.fromData` field, uses the current worker IP list, and adds an API-shape regression test.
