@@ -2,11 +2,17 @@
 
 *Two hands-on experiments: pause a process that remembers, then resume a task whose workspace survives.*
 
-I started exploring Agent Substrate with a Kubernetes question: **where does Kubernetes stop, and Substrate begin?**
+If you know Kubernetes, you know how to run an agent in a Pod. But **should every agent session need its own live Pod—even when it has nothing to do?**
 
-Reading “actors run on prepared workers” helped. Seeing a counter wake up, remember its in-memory value, and run inside the same worker Pod helped much more.
+Imagine a platform hosting thousands of coding-agent sessions. Each has files, tools, and execution state. Some are working; others are waiting for a human to come back. In a one-Pod-per-session design, you can keep their processes alive to preserve that context, or stop them and arrange to reconstruct it later. A persistent volume helps with files; it doesn't, by itself, preserve process memory.
 
-This tutorial packages that moment, followed by a first encounter with AX. You won't need an LLM API key. We will make state visible before bringing models into the picture.
+[Agent Substrate](https://github.com/agent-substrate/substrate/tree/7245baad8a6fd58f81c32338395b74484547fc12) explores a different split: Kubernetes manages a pool of ready worker Pods; Substrate manages the actors that use them. Actors can be suspended into snapshots and restored onto available workers. Activating an actor need not mean scheduling a new Pod. The design separates the number of sessions you retain from the execution capacity they currently occupy.
+
+[AX](https://github.com/google/ax/tree/ac2332829f22360ff97b0ba34d94dd0dd782f17e) adds the developer-facing layer: declarative Tasks, Workspaces, and Model configuration, with an `apply`/`get`/`watch` workflow that Kubernetes users will recognize.
+
+If you build developer platforms or operate sandboxed workloads, that's the reason to explore both: **how do you share compute without treating every pause as starting over—and what API should developers use to ask for it?** Your Kubernetes knowledge remains useful; the interesting part is deciding what belongs above the Pod layer. These are early-stage projects to investigate, not a recommendation to migrate production workloads.
+
+I understood that split much better after watching a counter wake up, remember its in-memory value, and run inside the same worker Pod. That's what we'll do here, then contrast it with an AX task whose workspace survives but whose runtime starts fresh. No LLM key, no model bill, and no need to take a performance claim on faith.
 
 **Start here:** a Linux/amd64 development machine with **Docker running and Go installed**. You don't need Kind, kubectl, Git, Make, an existing cluster, a cloud account, or an LLM key. We will install the lab here, then do the two experiments. Modern Go can download the required toolchain automatically; leave that default enabled. [Go toolchain documentation](https://go.dev/doc/toolchain).
 

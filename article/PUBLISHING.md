@@ -10,7 +10,7 @@ The article remains a draft. No Substack or LinkedIn post has been published as 
 - Audience: developers comfortable with containers and basic Kubernetes.
 - Entry point: Docker running and modern Go installed; ZIP download avoids requiring host Git. Setup is in the article, not a prerequisite reading detour.
 - Promise: an end-to-end path, with 10–20 minutes of experiments plus measured, clearly qualified initial setup/build time. Do not promise an unmeasured cold laptop-to-cluster duration.
-- Hook: prove full-state restoration with two counters, then deliberately contrast AX's workspace/data restoration.
+- Hook: ask whether every idle agent session needs a live Pod. Connect that platform-design question to Substrate's actor/capacity split and AX's declarative API, then prove full-state restoration with two counters and contrast AX's workspace/data restoration.
 - No API keys, model charges, autonomous-loop claims, density benchmarks, or production-hardening claims.
 - Local Linux/amd64 edition. A custom runner keeps the first task independent of Git downloads, workspace goals, and model setup.
 
